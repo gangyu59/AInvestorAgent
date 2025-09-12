@@ -1,0 +1,1365 @@
+{
+  "name": "AInvestorAgent",
+  "path": ".",
+  "type": "dir",
+  "children": [
+    {
+      "name": "#!",
+      "path": "#!",
+      "type": "dir",
+      "children": [
+        {
+          "name": "usr",
+          "path": "#!/usr",
+          "type": "dir",
+          "children": [
+            {
+              "name": "bin",
+              "path": "#!/usr/bin",
+              "type": "dir",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": ".env",
+      "path": ".env",
+      "type": "file",
+      "size": 179
+    },
+    {
+      "name": "backend",
+      "path": "backend",
+      "type": "dir",
+      "children": [
+        {
+          "name": "agents",
+          "path": "backend/agents",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/agents/__init__.py",
+              "type": "file",
+              "size": 568
+            },
+            {
+              "name": "backtest_engineer.py",
+              "path": "backend/agents/backtest_engineer.py",
+              "type": "file",
+              "size": 800
+            },
+            {
+              "name": "base_agent.py",
+              "path": "backend/agents/base_agent.py",
+              "type": "file",
+              "size": 1751
+            },
+            {
+              "name": "data_cleaner.py",
+              "path": "backend/agents/data_cleaner.py",
+              "type": "file",
+              "size": 542
+            },
+            {
+              "name": "data_ingestor.py",
+              "path": "backend/agents/data_ingestor.py",
+              "type": "file",
+              "size": 628
+            },
+            {
+              "name": "portfolio_manager.py",
+              "path": "backend/agents/portfolio_manager.py",
+              "type": "file",
+              "size": 1432
+            },
+            {
+              "name": "risk_manager.py",
+              "path": "backend/agents/risk_manager.py",
+              "type": "file",
+              "size": 936
+            },
+            {
+              "name": "signal_researcher.py",
+              "path": "backend/agents/signal_researcher.py",
+              "type": "file",
+              "size": 740
+            }
+          ]
+        },
+        {
+          "name": "api",
+          "path": "backend/api",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/api/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "deps.py",
+              "path": "backend/api/deps.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "routers",
+              "path": "backend/api/routers",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "__init__.py",
+                  "path": "backend/api/routers/__init__.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "analyze.py",
+                  "path": "backend/api/routers/analyze.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "backtest.py",
+                  "path": "backend/api/routers/backtest.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "fundamentals.py",
+                  "path": "backend/api/routers/fundamentals.py",
+                  "type": "file",
+                  "size": 1938
+                },
+                {
+                  "name": "health.py",
+                  "path": "backend/api/routers/health.py",
+                  "type": "file",
+                  "size": 304
+                },
+                {
+                  "name": "metrics.py",
+                  "path": "backend/api/routers/metrics.py",
+                  "type": "file",
+                  "size": 2462
+                },
+                {
+                  "name": "news.py",
+                  "path": "backend/api/routers/news.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "portfolio.py",
+                  "path": "backend/api/routers/portfolio.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "prices.py",
+                  "path": "backend/api/routers/prices.py",
+                  "type": "file",
+                  "size": 2918
+                },
+                {
+                  "name": "symbols.py",
+                  "path": "backend/api/routers/symbols.py",
+                  "type": "file",
+                  "size": 0
+                }
+              ]
+            },
+            {
+              "name": "schemas",
+              "path": "backend/api/schemas",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "__init__.py",
+                  "path": "backend/api/schemas/__init__.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "analyze.py",
+                  "path": "backend/api/schemas/analyze.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "backtest.py",
+                  "path": "backend/api/schemas/backtest.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "common.py",
+                  "path": "backend/api/schemas/common.py",
+                  "type": "file",
+                  "size": 136
+                },
+                {
+                  "name": "factors.py",
+                  "path": "backend/api/schemas/factors.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "fundamentals.py",
+                  "path": "backend/api/schemas/fundamentals.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "metrics.py",
+                  "path": "backend/api/schemas/metrics.py",
+                  "type": "file",
+                  "size": 268
+                },
+                {
+                  "name": "news.py",
+                  "path": "backend/api/schemas/news.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "portfolio.py",
+                  "path": "backend/api/schemas/portfolio.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "price.py",
+                  "path": "backend/api/schemas/price.py",
+                  "type": "file",
+                  "size": 686
+                },
+                {
+                  "name": "score.py",
+                  "path": "backend/api/schemas/score.py",
+                  "type": "file",
+                  "size": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "app.py",
+          "path": "backend/app.py",
+          "type": "file",
+          "size": 645
+        },
+        {
+          "name": "backtest",
+          "path": "backend/backtest",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/backtest/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "benchmark.py",
+              "path": "backend/backtest/benchmark.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "engine.py",
+              "path": "backend/backtest/engine.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "metrics.py",
+              "path": "backend/backtest/metrics.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "core",
+          "path": "backend/core",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/core/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "config.py",
+              "path": "backend/core/config.py",
+              "type": "file",
+              "size": 894
+            },
+            {
+              "name": "exceptions.py",
+              "path": "backend/core/exceptions.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "logging.py",
+              "path": "backend/core/logging.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "rate_limit.py",
+              "path": "backend/core/rate_limit.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "factors",
+          "path": "backend/factors",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/factors/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "aggregator.py",
+              "path": "backend/factors/aggregator.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "fundamentals.py",
+              "path": "backend/factors/fundamentals.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "momentum.py",
+              "path": "backend/factors/momentum.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "risk.py",
+              "path": "backend/factors/risk.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "transforms.py",
+              "path": "backend/factors/transforms.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "ingestion",
+          "path": "backend/ingestion",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/ingestion/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "alpha_vantage_client.py",
+              "path": "backend/ingestion/alpha_vantage_client.py",
+              "type": "file",
+              "size": 4281
+            },
+            {
+              "name": "loaders.py",
+              "path": "backend/ingestion/loaders.py",
+              "type": "file",
+              "size": 3410
+            },
+            {
+              "name": "news_api_client.py",
+              "path": "backend/ingestion/news_api_client.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "utils.py",
+              "path": "backend/ingestion/utils.py",
+              "type": "file",
+              "size": 503
+            }
+          ]
+        },
+        {
+          "name": "orchestrator",
+          "path": "backend/orchestrator",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/orchestrator/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "pipeline.py",
+              "path": "backend/orchestrator/pipeline.py",
+              "type": "file",
+              "size": 702
+            },
+            {
+              "name": "scheduler.py",
+              "path": "backend/orchestrator/scheduler.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "portfolio",
+          "path": "backend/portfolio",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/portfolio/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "allocator.py",
+              "path": "backend/portfolio/allocator.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "constraints.py",
+              "path": "backend/portfolio/constraints.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "explain.py",
+              "path": "backend/portfolio/explain.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "reports",
+          "path": "backend/reports",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/reports/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "markdown.py",
+              "path": "backend/reports/markdown.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "pdf.py",
+              "path": "backend/reports/pdf.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "scoring",
+          "path": "backend/scoring",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/scoring/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "scorer.py",
+              "path": "backend/scoring/scorer.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "weights.py",
+              "path": "backend/scoring/weights.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "sentiment",
+          "path": "backend/sentiment",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/sentiment/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "clean.py",
+              "path": "backend/sentiment/clean.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "llm_router.py",
+              "path": "backend/sentiment/llm_router.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "scorer.py",
+              "path": "backend/sentiment/scorer.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "summarize.py",
+              "path": "backend/sentiment/summarize.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "storage",
+          "path": "backend/storage",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/storage/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "dao.py",
+              "path": "backend/storage/dao.py",
+              "type": "file",
+              "size": 2705
+            },
+            {
+              "name": "db.py",
+              "path": "backend/storage/db.py",
+              "type": "file",
+              "size": 845
+            },
+            {
+              "name": "migrations",
+              "path": "backend/storage/migrations",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "env.py",
+                  "path": "backend/storage/migrations/env.py",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "script.py.mako",
+                  "path": "backend/storage/migrations/script.py.mako",
+                  "type": "file",
+                  "size": 0
+                }
+              ]
+            },
+            {
+              "name": "models.py",
+              "path": "backend/storage/models.py",
+              "type": "file",
+              "size": 1571
+            }
+          ]
+        },
+        {
+          "name": "tests",
+          "path": "backend/tests",
+          "type": "dir",
+          "children": [
+            {
+              "name": "__init__.py",
+              "path": "backend/tests/__init__.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "test_api.py",
+              "path": "backend/tests/test_api.py",
+              "type": "file",
+              "size": 778
+            },
+            {
+              "name": "test_backtest.py",
+              "path": "backend/tests/test_backtest.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "test_factors.py",
+              "path": "backend/tests/test_factors.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "test_portfolio.py",
+              "path": "backend/tests/test_portfolio.py",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "test_scoring.py",
+              "path": "backend/tests/test_scoring.py",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "db",
+      "path": "db",
+      "type": "dir",
+      "children": [
+        {
+          "name": "backup",
+          "path": "db/backup",
+          "type": "dir",
+          "children": [
+            {
+              "name": ".keep",
+              "path": "db/backup/.keep",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "exports",
+          "path": "db/exports",
+          "type": "dir",
+          "children": [
+            {
+              "name": ".keep",
+              "path": "db/exports/.keep",
+              "type": "file",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "name": "schema.sql",
+          "path": "db/schema.sql",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "stock.sqlite",
+          "path": "db/stock.sqlite",
+          "type": "file",
+          "size": 36864
+        }
+      ]
+    },
+    {
+      "name": "docs",
+      "path": "docs",
+      "type": "dir",
+      "children": [
+        {
+          "name": "API_REFERENCE.md",
+          "path": "docs/API_REFERENCE.md",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "ARCHITECTURE.md",
+          "path": "docs/ARCHITECTURE.md",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "CHANGELOG.md",
+          "path": "docs/CHANGELOG.md",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "DATA_DICTIONARY.md",
+          "path": "docs/DATA_DICTIONARY.md",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "FUNCTIONAL_SPEC.md",
+          "path": "docs/FUNCTIONAL_SPEC.md",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "UI_GUIDE.md",
+          "path": "docs/UI_GUIDE.md",
+          "type": "file",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "name": "frontend",
+      "path": "frontend",
+      "type": "dir",
+      "children": [
+        {
+          "name": ".env",
+          "path": "frontend/.env",
+          "type": "file",
+          "size": 37
+        },
+        {
+          "name": ".gitignore",
+          "path": "frontend/.gitignore",
+          "type": "file",
+          "size": 253
+        },
+        {
+          "name": "README.md",
+          "path": "frontend/README.md",
+          "type": "file",
+          "size": 2269
+        },
+        {
+          "name": "env.d.ts",
+          "path": "frontend/env.d.ts",
+          "type": "file",
+          "size": 168
+        },
+        {
+          "name": "eslint.config.js",
+          "path": "frontend/eslint.config.js",
+          "type": "file",
+          "size": 610
+        },
+        {
+          "name": "index.html",
+          "path": "frontend/index.html",
+          "type": "file",
+          "size": 366
+        },
+        {
+          "name": "package-lock.json",
+          "path": "frontend/package-lock.json",
+          "type": "file",
+          "size": 56748
+        },
+        {
+          "name": "package.json",
+          "path": "frontend/package.json",
+          "type": "file",
+          "size": 532
+        },
+        {
+          "name": "public",
+          "path": "frontend/public",
+          "type": "dir",
+          "children": [
+            {
+              "name": "favicon.ico",
+              "path": "frontend/public/favicon.ico",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "manifest.webmanifest",
+              "path": "frontend/public/manifest.webmanifest",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "robots.txt",
+              "path": "frontend/public/robots.txt",
+              "type": "file",
+              "size": 0
+            },
+            {
+              "name": "vite.svg",
+              "path": "frontend/public/vite.svg",
+              "type": "file",
+              "size": 1497
+            }
+          ]
+        },
+        {
+          "name": "src",
+          "path": "frontend/src",
+          "type": "dir",
+          "children": [
+            {
+              "name": "App.css",
+              "path": "frontend/src/App.css",
+              "type": "file",
+              "size": 606
+            },
+            {
+              "name": "App.tsx",
+              "path": "frontend/src/App.tsx",
+              "type": "file",
+              "size": 418
+            },
+            {
+              "name": "assets",
+              "path": "frontend/src/assets",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "fonts",
+                  "path": "frontend/src/assets/fonts",
+                  "type": "dir",
+                  "children": [
+                    {
+                      "name": ".keep",
+                      "path": "frontend/src/assets/fonts/.keep",
+                      "type": "file",
+                      "size": 0
+                    }
+                  ]
+                },
+                {
+                  "name": "images",
+                  "path": "frontend/src/assets/images",
+                  "type": "dir",
+                  "children": [
+                    {
+                      "name": "logo.svg",
+                      "path": "frontend/src/assets/images/logo.svg",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "placeholder.png",
+                      "path": "frontend/src/assets/images/placeholder.png",
+                      "type": "file",
+                      "size": 0
+                    }
+                  ]
+                },
+                {
+                  "name": "react.svg",
+                  "path": "frontend/src/assets/react.svg",
+                  "type": "file",
+                  "size": 4126
+                }
+              ]
+            },
+            {
+              "name": "components",
+              "path": "frontend/src/components",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "cards",
+                  "path": "frontend/src/components/cards",
+                  "type": "dir",
+                  "children": [
+                    {
+                      "name": "FactorCard.tsx",
+                      "path": "frontend/src/components/cards/FactorCard.tsx",
+                      "type": "file",
+                      "size": 2620
+                    },
+                    {
+                      "name": "KPIGrid.tsx",
+                      "path": "frontend/src/components/cards/KPIGrid.tsx",
+                      "type": "file",
+                      "size": 1552
+                    },
+                    {
+                      "name": "PortfolioCard.tsx",
+                      "path": "frontend/src/components/cards/PortfolioCard.tsx",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "SnapshotCard.tsx",
+                      "path": "frontend/src/components/cards/SnapshotCard.tsx",
+                      "type": "file",
+                      "size": 0
+                    }
+                  ]
+                },
+                {
+                  "name": "charts",
+                  "path": "frontend/src/components/charts",
+                  "type": "dir",
+                  "children": [
+                    {
+                      "name": "EquityCurve.tsx",
+                      "path": "frontend/src/components/charts/EquityCurve.tsx",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "MomentumBars.tsx",
+                      "path": "frontend/src/components/charts/MomentumBars.tsx",
+                      "type": "file",
+                      "size": 2231
+                    },
+                    {
+                      "name": "PriceChart.tsx",
+                      "path": "frontend/src/components/charts/PriceChart.tsx",
+                      "type": "file",
+                      "size": 1722
+                    },
+                    {
+                      "name": "RadarFactors.tsx",
+                      "path": "frontend/src/components/charts/RadarFactors.tsx",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "RequestsChart.tsx",
+                      "path": "frontend/src/components/charts/RequestsChart.tsx",
+                      "type": "file",
+                      "size": 1501
+                    },
+                    {
+                      "name": "SectorBars.tsx",
+                      "path": "frontend/src/components/charts/SectorBars.tsx",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "SentimentTimeline.tsx",
+                      "path": "frontend/src/components/charts/SentimentTimeline.tsx",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "WeightsPie.tsx",
+                      "path": "frontend/src/components/charts/WeightsPie.tsx",
+                      "type": "file",
+                      "size": 0
+                    }
+                  ]
+                },
+                {
+                  "name": "common",
+                  "path": "frontend/src/components/common",
+                  "type": "dir",
+                  "children": [
+                    {
+                      "name": "ErrorState.tsx",
+                      "path": "frontend/src/components/common/ErrorState.tsx",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "Loader.tsx",
+                      "path": "frontend/src/components/common/Loader.tsx",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "Tag.tsx",
+                      "path": "frontend/src/components/common/Tag.tsx",
+                      "type": "file",
+                      "size": 0
+                    }
+                  ]
+                },
+                {
+                  "name": "layout",
+                  "path": "frontend/src/components/layout",
+                  "type": "dir",
+                  "children": [
+                    {
+                      "name": "Sidebar.tsx",
+                      "path": "frontend/src/components/layout/Sidebar.tsx",
+                      "type": "file",
+                      "size": 167
+                    },
+                    {
+                      "name": "Topbar.tsx",
+                      "path": "frontend/src/components/layout/Topbar.tsx",
+                      "type": "file",
+                      "size": 0
+                    }
+                  ]
+                },
+                {
+                  "name": "tables",
+                  "path": "frontend/src/components/tables",
+                  "type": "dir",
+                  "children": [
+                    {
+                      "name": "EventsTable.tsx",
+                      "path": "frontend/src/components/tables/EventsTable.tsx",
+                      "type": "file",
+                      "size": 886
+                    },
+                    {
+                      "name": "HoldingsTable.tsx",
+                      "path": "frontend/src/components/tables/HoldingsTable.tsx",
+                      "type": "file",
+                      "size": 0
+                    },
+                    {
+                      "name": "NewsTable.tsx",
+                      "path": "frontend/src/components/tables/NewsTable.tsx",
+                      "type": "file",
+                      "size": 0
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "config",
+              "path": "frontend/src/config",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "appConfig.ts",
+                  "path": "frontend/src/config/appConfig.ts",
+                  "type": "file",
+                  "size": 0
+                }
+              ]
+            },
+            {
+              "name": "index.css",
+              "path": "frontend/src/index.css",
+              "type": "file",
+              "size": 1154
+            },
+            {
+              "name": "main.tsx",
+              "path": "frontend/src/main.tsx",
+              "type": "file",
+              "size": 230
+            },
+            {
+              "name": "routes",
+              "path": "frontend/src/routes",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "index.tsx",
+                  "path": "frontend/src/routes/index.tsx",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "manage.tsx",
+                  "path": "frontend/src/routes/manage.tsx",
+                  "type": "file",
+                  "size": 6363
+                },
+                {
+                  "name": "monitor.tsx",
+                  "path": "frontend/src/routes/monitor.tsx",
+                  "type": "file",
+                  "size": 4927
+                },
+                {
+                  "name": "portfolio.tsx",
+                  "path": "frontend/src/routes/portfolio.tsx",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "simulator.tsx",
+                  "path": "frontend/src/routes/simulator.tsx",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "stock.tsx",
+                  "path": "frontend/src/routes/stock.tsx",
+                  "type": "file",
+                  "size": 4036
+                }
+              ]
+            },
+            {
+              "name": "services",
+              "path": "frontend/src/services",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "api.ts",
+                  "path": "frontend/src/services/api.ts",
+                  "type": "file",
+                  "size": 1170
+                },
+                {
+                  "name": "endpoints.ts",
+                  "path": "frontend/src/services/endpoints.ts",
+                  "type": "file",
+                  "size": 405
+                }
+              ]
+            },
+            {
+              "name": "state",
+              "path": "frontend/src/state",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "useTheme.ts",
+                  "path": "frontend/src/state/useTheme.ts",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "useWatchlist.ts",
+                  "path": "frontend/src/state/useWatchlist.ts",
+                  "type": "file",
+                  "size": 0
+                }
+              ]
+            },
+            {
+              "name": "styles",
+              "path": "frontend/src/styles",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "animations.css",
+                  "path": "frontend/src/styles/animations.css",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "components.css",
+                  "path": "frontend/src/styles/components.css",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "main.css",
+                  "path": "frontend/src/styles/main.css",
+                  "type": "file",
+                  "size": 261
+                },
+                {
+                  "name": "responsive.css",
+                  "path": "frontend/src/styles/responsive.css",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "tailwind.css",
+                  "path": "frontend/src/styles/tailwind.css",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "themes.css",
+                  "path": "frontend/src/styles/themes.css",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "variables.css",
+                  "path": "frontend/src/styles/variables.css",
+                  "type": "file",
+                  "size": 0
+                }
+              ]
+            },
+            {
+              "name": "utils",
+              "path": "frontend/src/utils",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "chartOptions.ts",
+                  "path": "frontend/src/utils/chartOptions.ts",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "constants.ts",
+                  "path": "frontend/src/utils/constants.ts",
+                  "type": "file",
+                  "size": 0
+                },
+                {
+                  "name": "format.ts",
+                  "path": "frontend/src/utils/format.ts",
+                  "type": "file",
+                  "size": 0
+                }
+              ]
+            },
+            {
+              "name": "vite-env.d.ts",
+              "path": "frontend/src/vite-env.d.ts",
+              "type": "file",
+              "size": 38
+            }
+          ]
+        },
+        {
+          "name": "tsconfig.app.json",
+          "path": "frontend/tsconfig.app.json",
+          "type": "file",
+          "size": 702
+        },
+        {
+          "name": "tsconfig.json",
+          "path": "frontend/tsconfig.json",
+          "type": "file",
+          "size": 428
+        },
+        {
+          "name": "tsconfig.node.json",
+          "path": "frontend/tsconfig.node.json",
+          "type": "file",
+          "size": 630
+        },
+        {
+          "name": "vite.config.ts",
+          "path": "frontend/vite.config.ts",
+          "type": "file",
+          "size": 214
+        }
+      ]
+    },
+    {
+      "name": "notebooks",
+      "path": "notebooks",
+      "type": "dir",
+      "children": [
+        {
+          "name": "BacktestSanityCheck.ipynb",
+          "path": "notebooks/BacktestSanityCheck.ipynb",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "FactorExploration.ipynb",
+          "path": "notebooks/FactorExploration.ipynb",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "SentimentSandbox.ipynb",
+          "path": "notebooks/SentimentSandbox.ipynb",
+          "type": "file",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "name": "requirements.txt",
+      "path": "requirements.txt",
+      "type": "file",
+      "size": 432
+    },
+    {
+      "name": "run.py",
+      "path": "run.py",
+      "type": "file",
+      "size": 5306
+    },
+    {
+      "name": "scripts",
+      "path": "scripts",
+      "type": "dir",
+      "children": [
+        {
+          "name": "fetch_fundamentals.py",
+          "path": "scripts/fetch_fundamentals.py",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "fetch_news.py",
+          "path": "scripts/fetch_news.py",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "fetch_prices.py",
+          "path": "scripts/fetch_prices.py",
+          "type": "file",
+          "size": 1409
+        },
+        {
+          "name": "propose_portfolio.py",
+          "path": "scripts/propose_portfolio.py",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "rebuild_factors.py",
+          "path": "scripts/rebuild_factors.py",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "recompute_scores.py",
+          "path": "scripts/recompute_scores.py",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "run_backtest.py",
+          "path": "scripts/run_backtest.py",
+          "type": "file",
+          "size": 0
+        }
+      ]
+    },
+    {
+      "name": "tools",
+      "path": "tools",
+      "type": "dir",
+      "children": [
+        {
+          "name": "db_backup.py",
+          "path": "tools/db_backup.py",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "export_csv.py",
+          "path": "tools/export_csv.py",
+          "type": "file",
+          "size": 0
+        },
+        {
+          "name": "validate_config.py",
+          "path": "tools/validate_config.py",
+          "type": "file",
+          "size": 0
+        }
+      ]
+    }
+  ]
+}
