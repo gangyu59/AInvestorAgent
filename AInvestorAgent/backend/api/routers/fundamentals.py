@@ -1,64 +1,44 @@
-# backend/api/routers/fundamentals.py
-
-from fastapi import APIRouter, HTTPException
-from sqlalchemy.orm import Session
-from app.db import get_db
-import requests
-from pydantic import BaseModel
+# -*- coding: utf-8 -*-
 from datetime import datetime
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+import requests
 
-# AlphaVantage API Key 和基本信息
-ALPHA_VANTAGE_API_KEY = "your_alpha_vantage_api_key"
-ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query"
+from backend.api.deps import get_db
 
-router = APIRouter()
+router = APIRouter(tags=["fundamentals"])
 
-
-# 数据模型
-class Fundamentals(BaseModel):
+class FundamentalsResp(BaseModel):
     symbol: str
-    pe: float
-    pb: float
-    roe: float
-    net_margin: float
-    market_cap: float
-    sector: str
-    industry: str
+    pe: Optional[float] = None
+    pb: Optional[float] = None
+    roe: Optional[float] = None
+    net_margin: Optional[float] = None
+    market_cap: Optional[int] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
     as_of: datetime
 
+@router.get("/fundamentals/{symbol}", response_model=FundamentalsResp)
+def get_fundamentals(symbol: str, db: Session = Depends(get_db)) -> FundamentalsResp:
+    r = requests.get("https://placeholder.example/overview", params={"symbol": symbol})
+    data = r.json()
+    if not r.ok:
+        raise HTTPException(status_code=400, detail="upstream error")
 
-@router.get("/fundamentals/{symbol}", response_model=Fundamentals)
-def get_fundamentals(symbol: str, db: Session = Depends(get_db)):
-    # 查询 AlphaVantage API
-    response = requests.get(ALPHA_VANTAGE_URL, params={
-        "function": "OVERVIEW",
-        "symbol": symbol,
-        "apikey": ALPHA_VANTAGE_API_KEY
-    })
-    data = response.json()
+    f = lambda x: float(x) if x not in (None, "", "None") else None
+    i = lambda x: int(x) if x not in (None, "", "None") else None
 
-    if "Error Message" in data or "Note" in data:
-        raise HTTPException(status_code=400, detail="Error fetching data from AlphaVantage")
-
-    # 处理并存储数据
-    fundamentals = Fundamentals(
+    return FundamentalsResp(
         symbol=symbol,
-        pe=float(data.get("PERatio", 0)),
-        pb=float(data.get("PBRatio", 0)),
-        roe=float(data.get("ReturnOnEquityTTM", 0)),
-        net_margin=float(data.get("NetProfitMargin", 0)),
-        market_cap=float(data.get("MarketCapitalization", 0)),
-        sector=data.get("Sector", ""),
-        industry=data.get("Industry", ""),
-        as_of=datetime.utcnow()
+        pe=f(data.get("PERatio")),
+        pb=f(data.get("PBRatio")),
+        roe=f(data.get("ReturnOnEquityTTM")),
+        net_margin=f(data.get("NetProfitMargin")),
+        market_cap=i(data.get("MarketCapitalization")),
+        sector=data.get("Sector"),
+        industry=data.get("Industry"),
+        as_of=datetime.utcnow(),
     )
-
-    # 存储到数据库
-    db.execute("""
-        INSERT INTO fundamentals (symbol, pe, pb, roe, net_margin, market_cap, sector, industry, as_of)
-        VALUES (:symbol, :pe, :pb, :roe, :net_margin, :market_cap, :sector, :industry, :as_of)
-    """, fundamentals.dict())
-
-    db.commit()
-
-    return fundamentals

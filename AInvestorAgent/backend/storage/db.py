@@ -19,5 +19,12 @@ def get_engine():
     db_url = settings.DB_URL or _default_sqlite_url()
     return create_engine(db_url, echo=False, future=True)
 
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 engine = get_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)

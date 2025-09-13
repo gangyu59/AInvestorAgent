@@ -5,6 +5,8 @@ from datetime import datetime, date
 from sqlalchemy import Column, String, Date, Float, Integer, UniqueConstraint, Index, DateTime
 from .db import Base
 
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, Index, func
+from sqlalchemy.orm import relationship
 
 class Symbol(Base):
     __tablename__ = "symbols"
@@ -34,3 +36,25 @@ class RunHistory(Base):
     __tablename__ = "run_history"
     job = Column(String(64), primary_key=True)
     ts = Column(DateTime, primary_key=True, default=datetime.utcnow)
+
+
+class NewsRaw(Base):
+    __tablename__ = "news_raw"
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, index=True, nullable=False)
+    title = Column(Text, nullable=False)
+    summary = Column(Text)
+    url = Column(String, nullable=False)
+    source = Column(String)
+    published_at = Column(DateTime(timezone=True), index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (Index("uq_news_symbol_url", "symbol", "url", unique=True),)
+    scores = relationship("NewsScore", back_populates="news", cascade="all, delete-orphan")
+
+class NewsScore(Base):
+    __tablename__ = "news_scores"
+    id = Column(Integer, primary_key=True)
+    news_id = Column(Integer, ForeignKey("news_raw.id", ondelete="CASCADE"), index=True, nullable=False)
+    sentiment = Column(Float, nullable=False)  # -1..1
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    news = relationship("NewsRaw", back_populates="scores")
