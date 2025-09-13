@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AInvestorAgent · 运行监控 & 行情可视化</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+  body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:16px}
+  .card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  label{font-size:14px;color:#374151}
+  select,input,button{height:36px;padding:0 10px;border:1px solid #d1d5db;border-radius:8px;background:#fff}
+  button{cursor:pointer}
+  #log{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap;background:#f9fafb;padding:10px;border-radius:8px;max-height:200px;overflow:auto}
+  #chart{width:100%;height:520px}
+  .ok{color:#059669}.bad{color:#dc2626}
+</style>
+</head><body>
+<h2>🛠️ 服务监控</h2>
+<div class="card">
+  <div class="row">
+    <div>健康状态：<span id="health" class="bad">未知</span></div>
+    <div>端点：<code id="endpoint">/api/health</code></div>
+    <button id="ping">立即Ping</button>
+  </div>
+</div>
+
+<h2>📈 行情可视化</h2>
+<div class="card">
+  <div class="row">
+    <label>Symbol</label>
+    <select id="symbol">
+      <option value="AAPL">AAPL</option><option value="MSFT">MSFT</option>
+      <option value="TSLA">TSLA</option><option value="NVDA">NVDA</option>
+    </select>
+    <label>Adjusted</label>
+    <select id="adjusted"><option value="true" selected>true</option><option value="false">false</option></select>
+    <label>Outputsize</label>
+    <select id="outputsize"><option value="compact" selected>compact</option><option value="full">full</option></select>
+    <label>Limit</label><input id="limit" type="number" value="120" min="10" max="1000"/>
+    <button id="run">🚀 拉取并画图</button>
+    <button id="onlyQuery">🔎 仅查询并画图</button>
+  </div>
+</div>
+
+<div class="card"><div id="chart"></div></div>
+<div class="card"><strong>Logs</strong><div id="log"></div></div>
+
+<script>
+const apiBase = location.origin;
+const healthEl = document.getElementById('health');
+const endpointEl = document.getElementById('endpoint');
+const logEl = document.getElementById('log');
+const chart = echarts.init(document.getElementById('chart'));
+
+function log(m){const ts=new Date().toLocaleTimeString();logEl.textContent+=`[${ts}] ${m}\n`;logEl.scrollTop=logEl.scrollHeight;}
+
+async function ping(){
+  const paths=["/api/health","/health","/"];
+  for (const p of paths){
+    try{ const r=await fetch(apiBase+p,{cache:"no-store"});
+      if(r.ok){healthEl.textContent="OK";healthEl.className="ok";endpointEl.textContent=p;return}
+    }catch(e){}
+  }
+  healthEl.textContent="DOWN";healthEl.className="bad";
+}
+
+async function fetchAndStore(symbol, adjusted, outputsize) {
+  const url = `${apiBase}/api/prices/fetch?symbol=${encodeURIComponent(symbol)}&adjusted=${adjusted}&outputsize=${outputsize}`;
+  const waits = [15, 30, 45, 60]; // 秒
+  for (let i = 0; i < waits.length; i++) {
+    const resp = await fetch(url, { method: 'POST' });
+    if (resp.status === 429) {
+      const sec = waits[i];
+      log(`⚠️ 429 频控，第 ${i+1}/${waits.length} 次退避 ${sec}s 后重试…`);
+      await new Promise(r => setTimeout(r, sec * 1000));
+      continue;
+    }
+    if (!resp.ok) {
+      const msg = await resp.text().catch(()=> '');
+      throw new Error(`fetch失败 ${resp.status} ${msg}`);
+    }
+    return resp.json();
+  }
+  throw new Error('连续 429 次数过多，请稍后再试');
+}
+
+async function queryDaily(symbol, limit){
+  const url=`${apiBase}/api/prices/daily?symbol=${encodeURIComponent(symbol)}&limit=${limit}`;
+  const r=await fetch(url); if(!r.ok){throw new Error("daily失败 "+r.status)}; return r.json();
+}
+
+function render(data){
+  const dates=data.items.map(d=>d.date), closes=data.items.map(d=>d.close??0), vols=data.items.map(d=>d.volume??0);
+  const opt={ title:{text:`${data.symbol} · Close`}, tooltip:{trigger:"axis"},
+    grid:[{left:50,right:25,top:50,height:280},{left:50,right:25,top:360,height:100}],
+    xAxis:[{type:"category",boundaryGap:false,data:dates},{type:"category",boundaryGap:true,data:dates,gridIndex:1}],
+    yAxis:[{type:"value",scale:true,name:"Price"},{type:"value",scale:true,name:"Volume",gridIndex:1}],
+    dataZoom:[{type:"inside",xAxisIndex:[0,1]},{type:"slider",xAxisIndex:[0,1]}],
+    series:[{name:"Close",type:"line",smooth:true,showSymbol:false,data:closes},{name:"Volume",type:"bar",data:vols,xAxisIndex:1,yAxisIndex:1}]};
+  chart.setOption(opt);
+}
+document.getElementById('ping').onclick=()=>ping();
+document.getElementById('run').onclick=async()=>{
+  const s=document.getElementById('symbol').value,a=document.getElementById('adjusted').value,o=document.getElementById('outputsize').value,l=document.getElementById('limit').value;
+  try{log(`拉取 ${s} ...`);const f=await fetchAndStore(s,a,o);log("入库："+JSON.stringify(f));const d=await queryDaily(s,l);log(`查询：${d.items.length} 条`);render(d);}catch(e){log("❌ "+e.message);alert(e.message);}
+};
+document.getElementById('onlyQuery').onclick=async()=>{
+  const s=document.getElementById('symbol').value,l=document.getElementById('limit').value;
+  try{const d=await queryDaily(s,l);log(`查询：${d.items.length} 条`);render(d);}catch(e){log("❌ "+e.message);alert(e.message);}
+};
+ping(); setInterval(ping, 5000);
+</script>
+</body></html>

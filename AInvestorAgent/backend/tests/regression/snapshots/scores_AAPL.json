@@ -1,0 +1,11 @@
+{
+  "symbol": "AAPL",
+  "factors": {
+    "value": 0.52,
+    "quality": 0.61,
+    "momentum": 0.55,
+    "sentiment": 0.4
+  },
+  "score": 52.45,
+  "version_tag": "v1-baseline"
+}

@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.env
+.idea/ .vscode/
+db/*.sqlite
+db/*.db
+db/exports/
+backend/reports/*.html
+reports/
+node_modules/
+.pytest_cache/ .coverage htmlcov/
