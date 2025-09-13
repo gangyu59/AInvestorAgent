@@ -58,3 +58,17 @@ class NewsScore(Base):
     sentiment = Column(Float, nullable=False)  # -1..1
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     news = relationship("NewsRaw", back_populates="scores")
+
+
+class ScoreDaily(Base):
+    __tablename__ = "scores_daily"
+    id = Column(Integer, primary_key=True)
+    as_of = Column(Date, index=True, nullable=False)
+    symbol = Column(String, index=True, nullable=False)
+    f_value = Column(Float, nullable=True)      # 0..1
+    f_quality = Column(Float, nullable=True)    # 0..1
+    f_momentum = Column(Float, nullable=True)   # 0..1
+    f_sentiment = Column(Float, nullable=True)  # 0..1
+    score = Column(Float, nullable=False)       # 0..100
+    version_tag = Column(String, default="v0.1", index=True)
+    __table_args__ = (Index("uq_scores_asof_symbol", "as_of", "symbol", unique=True),)

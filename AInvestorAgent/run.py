@@ -305,6 +305,17 @@ def _test_news(host: str, port: int, symbol: str, days: int, do_fetch: bool):
     print("timeline天数:", len(data.get("timeline", [])), " items:", len(data.get("items", [])))
     if data.get("timeline"): print("样例:", data["timeline"][-1])
 
+def _test_portfolio(host: str, port: int, symbols_csv: str, top_n: int, scheme: str):
+    import requests, json
+    base=f"http://{host}:{port}"
+    syms=[s.strip() for s in symbols_csv.split(",") if s.strip()]
+    url = f"{base}/api/portfolio/topn?" + "&".join(f"symbols={s}" for s in syms) + f"&top_n={top_n}&scheme={scheme}"
+    r = requests.post(url, timeout=120); r.raise_for_status()
+    data = r.json()
+    print("as_of:", data["as_of"], "items:", len(data["items"]))
+    for i, it in enumerate(data["items"], 1):
+        print(f"{i:>2}. {it['symbol']:>6}  score={it['score']:.1f}  w={it['weight']:.4f}")
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="AInvestorAgent Runner")
@@ -330,6 +341,13 @@ def main(argv=None):
     p_test_news.add_argument("--days", type=int, default=7)
     p_test_news.add_argument("--no-fetch", action="store_true")
 
+    p_tp = sub.add_parser("test-portfolio", help="在线自测组合生成")
+    p_tp.add_argument("--host", type=str, default="127.0.0.1")
+    p_tp.add_argument("--port", type=int, default=8000)
+    p_tp.add_argument("--symbols", type=str, default="AAPL,MSFT,TSLA,NVDA,AMZN,GOOGL,META,AMD,IBM,ORCL")
+    p_tp.add_argument("--top-n", type=int, default=5)
+    p_tp.add_argument("--scheme", type=str, default="proportional")
+
     sub.add_parser("info", help="打印数据库配置等信息")
 
     args = parser.parse_args(argv)
@@ -344,6 +362,10 @@ def main(argv=None):
     if args.cmd == "test-news":
         return _test_news(host=args.host, port=args.port, symbol=args.symbol, days=args.days,
                           do_fetch=not args.no_fetch)
+    if args.cmd == "test-portfolio":
+        return _test_portfolio(host=args.host, port=args.port, symbols_csv=args.symbols, top_n=args.top_n,
+                               scheme=args.scheme)
+
     parser.print_help()
     return 0
 

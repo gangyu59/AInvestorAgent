@@ -8,6 +8,9 @@ from backend.api.routers import news as news_router
 from fastapi.staticfiles import StaticFiles
 from backend.api.routers import qa  # 新增
 from backend.api.routers import metrics, fundamentals
+from backend.api.routers import scores as scores_router
+from backend.api.routers import portfolio as portfolio_router
+
 
 # 自动建表（SQLite 简化）
 Base.metadata.create_all(bind=engine)
@@ -25,6 +28,8 @@ app.include_router(qa.router)
 app.include_router(metrics.router)
 app.include_router(fundamentals.router)
 app.include_router(news_router.router)
+app.include_router(scores_router.router)
+app.include_router(portfolio_router.router)
 
 # 静态挂载 /reports 以便前端能打开 last_report.html
 REPORT_DIR = os.path.join(os.path.dirname(__file__), "reports")
