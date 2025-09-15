@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
 import logging
 logger = logging.getLogger(__name__)
 
@@ -42,3 +43,18 @@ class BaseAgent:
         a = self.act(**(kwargs | {"plan": p}))
         r = self.report(**(kwargs | {"plan": p, "result": a}))
         return {"plan": p, "result": a, "report": r}
+
+
+class Agent(ABC):
+    name: str = "base"
+    desc: str = ""
+
+    @abstractmethod
+    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """输入/输出都用 Dict，契合你的协议与可追踪性"""
+
+def ok(agent: str, data: Dict[str, Any], meta: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    return {"agent": agent, "ok": True, "data": data, "meta": meta or {}}
+
+def fail(agent: str, msg: str, meta: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    return {"agent": agent, "ok": False, "error": msg, "meta": meta or {}}

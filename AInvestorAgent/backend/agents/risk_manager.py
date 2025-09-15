@@ -1,19 +1,43 @@
-# -*- coding: utf-8 -*-
-from typing import Any, Dict
+# backend/agents/risk_manager.py
+from __future__ import annotations
+from typing import Dict, Any, List, Tuple
 from .base_agent import BaseAgent
-import logging
-logger = logging.getLogger(__name__)
+from collections import defaultdict
+from dataclasses import dataclass
 
-class RiskManager(BaseAgent):
-    """风险控制：单票/行业/仓位上限校验及调整建议。"""
+class RiskManager:
     name = "risk_manager"
 
-    def act(self, weights: Dict[str, float], sector_map: Dict[str, str] | None = None,
-            max_weight: float = 0.30, max_sector: float = 0.50, **_) -> Dict[str, Any]:
-        # 最小启发式占位：截断超限并归一
-        logger.info("[risk] max_weight=%.2f max_sector=%.2f", max_weight, max_sector)
-        w = dict(weights)
-        # TODO: 按行业集中度校正（需要 sector_map）
-        total = sum(min(v, max_weight) for v in w.values()) or 1.0
-        w_adj = {k: min(v, max_weight) / total for k, v in w.items()}
-        return {"ok": True, "weights": w_adj, "notes": ["capped_single=%.0f%%" % (max_weight*100)]}
+    def __init__(self, ctx: Dict[str, Any] | None = None):
+        self._ctx = dict(ctx or {})
+
+    def _norm_params(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+        # 全部取自传入 ctx，给稳健默认值
+        return {
+            "max_stock": float(ctx.get("risk.max_stock", 0.30)),
+            "max_sector": float(ctx.get("risk.max_sector", 0.50)),
+            "count_range": tuple(ctx.get("risk.count_range", (5, 15))),
+        }
+
+    def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+        risk = self._norm_params(ctx)
+
+        # 优先取已有权重；没有就按 candidates/equal 补一份
+        weights = ctx.get("weights")
+        if not weights:
+            items = (ctx.get("proposal") or {}).get("items") or ctx.get("candidates") or []
+            syms = [x["symbol"] for x in items][:risk["count_range"][1]]
+            if not syms:
+                return {"ok": False, "data": {}}
+            w = 1.0 / len(syms)
+            weights = [{"symbol": s, "weight": w} for s in syms]
+
+        # 单票上限裁剪 + 归一化
+        capped = []
+        for w in weights:
+            v = min(float(w["weight"]), risk["max_stock"])
+            capped.append({"symbol": w["symbol"], "weight": v, "sector": w.get("sector")})
+        total = sum(x["weight"] for x in capped) or 1.0
+        kept = [{"symbol": x["symbol"], "weight": x["weight"] / total} for x in capped]
+
+        return {"ok": True, "data": {"kept": kept, "weights": kept}}
