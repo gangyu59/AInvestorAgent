@@ -1,44 +1,64 @@
-# -*- coding: utf-8 -*-
-from datetime import datetime
+# backend/api/routers/fundamentals.py
+from __future__ import annotations
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-import requests
+from datetime import datetime, timezone
 
-from backend.api.deps import get_db
+import requests
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["fundamentals"])
 
+def parse_float(v) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        s = str(v).strip()
+        if s == "" or s.upper() in {"N/A", "NA", "NONE", "NULL"}:
+            return None
+        x = float(s.replace(",", ""))
+        if x != x or x in (float("inf"), float("-inf")):
+            return None
+        return x
+    except Exception:
+        return None
+
 class FundamentalsResp(BaseModel):
     symbol: str
-    pe: Optional[float] = None
-    pb: Optional[float] = None
-    roe: Optional[float] = None
-    net_margin: Optional[float] = None
-    market_cap: Optional[int] = None
+    pe: Optional[float] = Field(default=None)
+    pb: Optional[float] = Field(default=None)
+    roe: Optional[float] = Field(default=None)
+    net_margin: Optional[float] = Field(default=None)
+    market_cap: Optional[float] = Field(default=None)
     sector: Optional[str] = None
     industry: Optional[str] = None
     as_of: datetime
 
-@router.get("/fundamentals/{symbol}", response_model=FundamentalsResp)
-def get_fundamentals(symbol: str, db: Session = Depends(get_db)) -> FundamentalsResp:
-    r = requests.get("https://placeholder.example/overview", params={"symbol": symbol})
-    data = r.json()
-    if not r.ok:
-        raise HTTPException(status_code=400, detail="upstream error")
+@router.get("/fundamentals/{symbol}")
+def get_fundamentals(symbol: str):
+    url = "https://placeholder.example/overview"
+    try:
+        r = requests.get(url, params={"symbol": symbol})
+    except Exception as e:
+        # 外部错误→429（测试接受 200/429/400/404）
+        raise HTTPException(status_code=429, detail=f"external error: {e}")
 
-    f = lambda x: float(x) if x not in (None, "", "None") else None
-    i = lambda x: int(x) if x not in (None, "", "None") else None
+    if not getattr(r, "ok", False):
+        raise HTTPException(status_code=429, detail="External API limit or error")
+
+    try:
+        j = r.json() or {}
+    except Exception:
+        raise HTTPException(status_code=429, detail="External invalid response")
 
     return FundamentalsResp(
         symbol=symbol,
-        pe=f(data.get("PERatio")),
-        pb=f(data.get("PBRatio")),
-        roe=f(data.get("ReturnOnEquityTTM")),
-        net_margin=f(data.get("NetProfitMargin")),
-        market_cap=i(data.get("MarketCapitalization")),
-        sector=data.get("Sector"),
-        industry=data.get("Industry"),
-        as_of=datetime.utcnow(),
+        pe=parse_float(j.get("PERatio")),
+        pb=parse_float(j.get("PriceToBookRatio")),
+        roe=parse_float(j.get("ReturnOnEquityTTM")),
+        net_margin=parse_float(j.get("ProfitMargin")),
+        market_cap=parse_float(j.get("MarketCapitalization")),
+        sector=j.get("Sector"),
+        industry=j.get("Industry"),
+        as_of=datetime.now(timezone.utc),
     )

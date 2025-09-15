@@ -1,23 +1,35 @@
 # backend/agents/portfolio_manager.py
 from __future__ import annotations
-from typing import Dict, Any, List
-from .base_agent import BaseAgent
+from typing import Dict, Any
 
-class PortfolioManager(BaseAgent):
+class PortfolioManager:
     name = "portfolio_manager"
 
-    def __init__(self, ctx: dict | None = None):
-        super().__init__(ctx or {})
+    def __init__(self, ctx: Any | None = None):
+        if ctx is None:
+            self._ctx = {}
+        elif isinstance(ctx, dict):
+            self._ctx = ctx
+        else:
+            # 兼容 AgentContext 或其他对象，直接存引用
+            self._ctx = {"ctx": ctx}
 
-    def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
-        # 输入：candidates=[{symbol,sector,score}]
-        cands: List[Dict[str, Any]] = ctx.get("candidates", [])
-        if not cands:
-            return {"ok": False, "error": "no candidates"}
+    def act(self, scores: Dict[str, Dict[str, Any]], max_positions: int = 5) -> Dict[str, Any]:
+        """
+        从 scores 中挑选 topN 股票并分配等权重。
+        """
+        if not scores:
+            return {"ok": False, "weights": []}
 
-        # 简单：按 score 归一得到初始权重
-        scores = [max(0.0, float(c.get("score", 0.0))) for c in cands]
-        s = sum(scores) or 1.0
-        weights = [{"symbol": c["symbol"], "weight": (scores[i]/s)} for i, c in enumerate(cands)]
-        explain = [{"symbol": c["symbol"], "reason": f"score={scores[i]:.1f}"} for i, c in enumerate(cands)]
-        return {"ok": True, "data": {"proposal": weights, "explain": explain}}
+        # 按 score 排序
+        ranked = sorted(scores.items(), key=lambda kv: kv[1].get("score", 0), reverse=True)
+        top = ranked[:max_positions]
+
+        n = len(top)
+        if n == 0:
+            return {"ok": False, "weights": []}
+
+        w = 1.0 / n
+        weights = [{"symbol": sym, "weight": w} for sym, _ in top]
+
+        return {"ok": True, "weights": weights}

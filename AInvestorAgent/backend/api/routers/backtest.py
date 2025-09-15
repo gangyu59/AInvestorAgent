@@ -35,7 +35,7 @@ def run_backtest(req: RunBacktestReq):
         agent = BacktestEngineer()
         data = {
             "kept": req.kept,
-            "weights": [w.dict() for w in req.weights] if req.weights else None,
+            "weights": [w.model_dump(exclude_none=False) for w in req.weights] if req.weights else None,
             "start": req.start, "end": req.end,
             "window_days": req.window_days,
             "trading_cost": req.trading_cost,

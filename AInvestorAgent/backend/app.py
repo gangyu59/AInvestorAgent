@@ -10,12 +10,18 @@ from backend.api.routers import qa  # 新增
 from backend.api.routers import metrics, fundamentals
 from backend.api.routers import scores as scores_router
 from backend.api.routers import portfolio as portfolio_router
+from backend.api.routers import orchestrator as orchestrator_router
+from backend.api.routers import backtest as backtest_router
 
+# backend/app.py 的顶部 import 里加
+from fastapi.staticfiles import StaticFiles
 
 # 自动建表（SQLite 简化）
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+# app.mount("/reports", StaticFiles(directory="reports"), name="reports")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +36,9 @@ app.include_router(fundamentals.router)
 app.include_router(news_router.router)
 app.include_router(scores_router.router)
 app.include_router(portfolio_router.router)
+app.include_router(orchestrator_router.router)
+app.include_router(backtest_router.router)
+
 
 # 静态挂载 /reports 以便前端能打开 last_report.html
 REPORT_DIR = os.path.join(os.path.dirname(__file__), "reports")

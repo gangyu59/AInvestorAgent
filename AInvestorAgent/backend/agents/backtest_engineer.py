@@ -1,8 +1,77 @@
 from __future__ import annotations
 from typing import Dict, Any, List, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import sqrt
 from .base_agent import Agent, ok, fail
+
+class BacktestEngineer(Agent):
+    """
+    最小回测工程师：
+      - 输入：kept(最终持仓) 或 weights([{symbol, weight}])，窗口(start/end 或 window_days)
+      - 输出：dates/nav/drawdown/metrics（可直接画图）
+      - 可选：benchmark_symbol（默认 SPY），mock(True) 离线演示
+    """
+    name = "backtest_engineer"
+    desc = "周频再平衡的最小回测（含交易成本与指标）"
+
+    def __init__(self, context: Dict[str, Any] | None = None):
+        # Agent 基类没有 __init__ 方法，所以不需要调用 super()
+        self.context = context or {}
+
+    def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+        kept = ctx.get("kept")
+        weights_arr = ctx.get("weights")
+        if not kept and not weights_arr:
+            return fail(self.name, "需要 kept 或 weights 作为回测权重输入", {})
+
+        use_mock = bool(ctx.get("mock", False))
+        window_days = int(ctx.get("window_days", 120))
+        end = ctx.get("end") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        start = ctx.get("start") or (datetime.fromisoformat(end) - timedelta(days=window_days)).strftime("%Y-%m-%d")
+        tc = float(ctx.get("trading_cost", 0.001))
+        bench = ctx.get("benchmark_symbol", "SPY")
+
+        # 组装权重
+        if kept:
+            weights = {p["symbol"]: float(p["weight"]) for p in kept}
+        else:
+            weights = {w["symbol"]: float(w["weight"]) for w in weights_arr}
+
+        # 拉取价格并对齐
+        price_map = {}
+        for sym in weights.keys():
+            series = _load_prices(sym, start, end, use_mock)
+            if not series:
+                return fail(self.name, f"未获得 {sym} 的价格数据", {})
+            price_map[sym] = sorted(series, key=lambda x: x.get("date", ""))
+
+        dates, closes = _align_by_date(price_map)
+        if not dates:
+            return fail(self.name, "无可用对齐交易日", {})
+        result = _portfolio_nav(dates, closes, weights, tc)
+
+        # 基准
+        bench_series = _load_prices(bench, start, end, use_mock)
+        bench_series = sorted(bench_series, key=lambda x: x.get("date", ""))
+        bench_dates = [p["date"] for p in bench_series]
+        bench_closes = [p["close"] for p in bench_series]
+        # 对齐到组合 dates
+        bench_map = {d: c for d, c in zip(bench_dates, bench_closes)}
+        bseq = []
+        for d in result["dates"]:
+            if d in bench_map:
+                bseq.append(bench_map[d])
+            elif bseq:
+                bseq.append(bseq[-1])
+        if bseq:
+            base = bseq[0]
+            result["benchmark_nav"] = [round(x / base, 6) for x in bseq]
+        else:
+            result["benchmark_nav"] = []
+
+        return ok(self.name, result, {"window": [start, end], "mock": use_mock})
+
+
 
 def _load_prices(symbol: str, start: str, end: str, use_mock: bool) -> List[Dict[str, Any]]:
     if use_mock:
@@ -133,65 +202,3 @@ def _portfolio_nav(dates: List[str], closes: Dict[str, List[float]], weights: Di
         }
     }
 
-class BacktestEngineer(Agent):
-    """
-    最小回测工程师：
-      - 输入：kept(最终持仓) 或 weights([{symbol, weight}])，窗口(start/end 或 window_days)
-      - 输出：dates/nav/drawdown/metrics（可直接画图）
-      - 可选：benchmark_symbol（默认 SPY），mock(True) 离线演示
-    """
-    name = "backtest_engineer"
-    desc = "周频再平衡的最小回测（含交易成本与指标）"
-
-    def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
-        kept = ctx.get("kept")
-        weights_arr = ctx.get("weights")
-        if not kept and not weights_arr:
-            return fail(self.name, "需要 kept 或 weights 作为回测权重输入")
-
-        use_mock = bool(ctx.get("mock", False))
-        window_days = int(ctx.get("window_days", 120))
-        end = ctx.get("end") or datetime.utcnow().strftime("%Y-%m-%d")
-        start = ctx.get("start") or (datetime.fromisoformat(end) - timedelta(days=window_days)).strftime("%Y-%m-%d")
-        tc = float(ctx.get("trading_cost", 0.001))
-        bench = ctx.get("benchmark_symbol", "SPY")
-
-        # 组装权重
-        if kept:
-            weights = {p["symbol"]: float(p["weight"]) for p in kept}
-        else:
-            weights = {w["symbol"]: float(w["weight"]) for w in weights_arr}
-
-        # 拉取价格并对齐
-        price_map = {}
-        for sym in weights.keys():
-            series = _load_prices(sym, start, end, use_mock)
-            if not series:
-                return fail(self.name, f"未获得 {sym} 的价格数据")
-            price_map[sym] = sorted(series, key=lambda x: x.get("date",""))
-
-        dates, closes = _align_by_date(price_map)
-        if not dates:
-            return fail(self.name, "无可用对齐交易日")
-        result = _portfolio_nav(dates, closes, weights, tc)
-
-        # 基准
-        bench_series = _load_prices(bench, start, end, use_mock)
-        bench_series = sorted(bench_series, key=lambda x: x.get("date",""))
-        bench_dates = [p["date"] for p in bench_series]
-        bench_closes = [p["close"] for p in bench_series]
-        # 对齐到组合 dates
-        bench_map = {d:c for d,c in zip(bench_dates, bench_closes)}
-        bseq = []
-        for d in result["dates"]:
-            if d in bench_map:
-                bseq.append(bench_map[d])
-            elif bseq:
-                bseq.append(bseq[-1])
-        if bseq:
-            base = bseq[0]
-            result["benchmark_nav"] = [round(x/base, 6) for x in bseq]
-        else:
-            result["benchmark_nav"] = []
-
-        return ok(self.name, result, {"window": [start, end], "mock": use_mock})
