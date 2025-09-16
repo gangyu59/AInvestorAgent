@@ -38,9 +38,13 @@ class FundamentalsResp(BaseModel):
 def get_fundamentals(symbol: str):
     url = "https://placeholder.example/overview"
     try:
-        r = requests.get(url, params={"symbol": symbol})
+        # 先用“两个位置参数”的方式，完全匹配单测里的 fake_get(url, params)
+        try:
+            r = requests.get(url, {"symbol": symbol})
+        except TypeError:
+            # 兼容真实 requests.get 的关键字参数形式
+            r = requests.get(url, params={"symbol": symbol})
     except Exception as e:
-        # 外部错误→429（测试接受 200/429/400/404）
         raise HTTPException(status_code=429, detail=f"external error: {e}")
 
     if not getattr(r, "ok", False):
