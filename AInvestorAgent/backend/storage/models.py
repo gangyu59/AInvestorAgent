@@ -1,12 +1,20 @@
 # backend/storage/models.py
 from __future__ import annotations
+import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
-from datetime import datetime, date
+from datetime import datetime, date, UTC
 from sqlalchemy import Column, String, Date, Float, Integer, UniqueConstraint, Index, DateTime
 from .db import Base
 
 from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, Index, func
 from sqlalchemy.orm import relationship
+import datetime as dt
+
+
+try:
+    JSONType = sa.JSON
+except AttributeError:
+    from sqlalchemy.types import JSON as JSONType
 
 class Symbol(Base):
     __tablename__ = "symbols"
@@ -28,6 +36,16 @@ class PriceDaily(Base):
     volume: Mapped[int | None] = mapped_column(Integer)
 
 
+class TraceRecord(Base):
+    __tablename__ = "traces"
+    trace_id   = sa.Column(sa.String, primary_key=True)
+    scene      = sa.Column(sa.String, nullable=False)
+    req_json   = sa.Column(JSONType, nullable=True)
+    context    = sa.Column(JSONType, nullable=True)
+    trace      = sa.Column(JSONType, nullable=True)
+    created_at = sa.Column(sa.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+
+
 class RunHistory(Base):
     """
     运行历史，用于实现“每周≤3次”的限频控制或任务审计。
@@ -35,7 +53,7 @@ class RunHistory(Base):
     """
     __tablename__ = "run_history"
     job = Column(String(64), primary_key=True)
-    ts = Column(DateTime, primary_key=True, default=datetime.utcnow)
+    ts = Column(DateTime, primary_key=True, default=dt.datetime.utcnow)
 
 
 class NewsRaw(Base):

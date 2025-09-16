@@ -12,6 +12,10 @@ from backend.api.routers import scores as scores_router
 from backend.api.routers import portfolio as portfolio_router
 from backend.api.routers import orchestrator as orchestrator_router
 from backend.api.routers import backtest as backtest_router
+from backend.api.viz import router as viz_router
+from backend.api.trace import router as trace_router
+from backend.api.routers import sim
+
 
 # backend/app.py 的顶部 import 里加
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +42,9 @@ app.include_router(scores_router.router)
 app.include_router(portfolio_router.router)
 app.include_router(orchestrator_router.router)
 app.include_router(backtest_router.router)
+app.include_router(viz_router, prefix="/api")
+app.include_router(trace_router, prefix="/api")
+app.include_router(sim.router)
 
 
 # 静态挂载 /reports 以便前端能打开 last_report.html
