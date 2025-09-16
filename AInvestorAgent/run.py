@@ -174,6 +174,26 @@ def _ensure_monitor_page() -> Path | None:
     except Exception:
         return None
 
+
+def _ensure_agents_page() -> Path | None:
+    reports = _reports_dir()
+    src = ROOT / "agents_smoketest.html"
+    dst = reports / "agents_smoketest.html"
+    try:
+        if src.exists():
+            # 根目录有源文件→复制到 backend/reports
+            dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            return dst
+        # 🔁 即使根目录没有，只要目标文件已存在，也应该认为“可用”
+        if dst.exists():
+            return dst
+        print("⚠️ 未在项目根目录找到 agents_smoketest.html，已回退到 price 页面或 /docs。")
+    except Exception as e:
+        print("⚠️ 复制 agents_smoketest.html 失败：", e)
+    return None
+
+
+
 def _wait_for_http(base: str, paths=("/api/health", "/health", "/"), timeout=60):
     import requests
     start = time.time()
@@ -192,8 +212,16 @@ def _wait_for_http(base: str, paths=("/api/health", "/health", "/"), timeout=60)
     return False, None, last_err
 
 def _serve(host: str = "0.0.0.0", port: int = 8000, reload: bool = False, auto_open: bool = True):
+    monitor = None
+    agents = None
+
     _banner("启动 AInvestorAgent API 服务")
     _ensure_packages(REQUIRED_PKGS)
+    agents = _ensure_agents_page()
+    if monitor is not None:
+        print(f"🖼️ 价格监控页：{monitor}")
+    if agents is not None:
+        print(f"🧪 Agents 测试页：{agents}")
 
     monitor = _ensure_monitor_page()
     if monitor:
@@ -205,19 +233,32 @@ def _serve(host: str = "0.0.0.0", port: int = 8000, reload: bool = False, auto_o
     client_host = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
     base = f"http://{client_host}:{port}"
 
+    # ✅ 无论健康检查是否通过，都先尝试打开页面（优先 Agents）
+    if auto_open:
+        agents_dst = _reports_dir() / "agents_smoketest.html"  # 新增这行
+        if agents_dst.exists():  # 改成检查目标是否存在
+            url = f"{base}/reports/agents_smoketest.html"
+        elif monitor is not None:
+            url = f"{base}/reports/price_smoketest.html"
+        else:
+            url = f"{base}/docs"
+
+        def _open():
+            time.sleep(1.0)  # 给服务器1秒缓冲
+            try:
+                webbrowser.open_new_tab(url)
+            except Exception:
+                pass
+
+        threading.Thread(target=_open, daemon=True).start()
+        print(f"🌐 已尝试在浏览器打开：{url}")
+
+    # 健康检查只用于打印状态，不再阻塞“是否打开页面”
     ok, ep, info = _wait_for_http(base)
     if ok:
         print(f"✅ 服务已就绪：GET {ep} -> {info}")
-        if auto_open:
-            url = f"{base}/reports/price_smoketest.html" if monitor else f"{base}/docs"
-            def _open():
-                time.sleep(1.0)
-                try: webbrowser.open(url)
-                except Exception: pass
-            threading.Thread(target=_open, daemon=True).start()
-            print(f"🌐 已尝试在浏览器打开：{url}")
     else:
-        print("⚠️ 无法在预期时间内通过健康检查，服务可能仍在拉起中。")
+        print("⚠️ 健康检查未通过，服务可能仍在拉起中（页面会在就绪后自动加载接口）。")
 
     try:
         proc.wait()
