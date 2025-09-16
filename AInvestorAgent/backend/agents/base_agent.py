@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
+from datetime import datetime
 import logging
 logger = logging.getLogger(__name__)
 
@@ -58,3 +59,19 @@ def ok(agent: str, data: Dict[str, Any], meta: Dict[str, Any] | None = None) -> 
 
 def fail(agent: str, msg: str, meta: Dict[str, Any] | None = None) -> Dict[str, Any]:
     return {"agent": agent, "ok": False, "error": msg, "meta": meta or {}}
+
+@dataclass
+class ResearchContext:
+    """供研究链各智能体共享的轻量上下文（完全可选字段，零侵入）。"""
+    symbol: str = ""
+    factors: Dict[str, float] = field(default_factory=dict)
+    signals: Dict[str, Any] = field(default_factory=dict)
+    trace: List[Dict[str, Any]] = field(default_factory=list)
+    score: Optional[float] = None
+    meta: Dict[str, Any] = field(default_factory=dict)  # 上游派生特征/缓存
+
+def trace_push(ctx: "ResearchContext", agent: str, ok: bool = True, error: Exception | None = None, meta: Dict[str, Any] | None = None):
+    item = {"agent": agent, "ok": ok, "meta": {"ts": datetime.utcnow().isoformat(), **(meta or {})}}
+    if error:
+        item["error"] = str(error)
+    ctx.trace.append(item)
