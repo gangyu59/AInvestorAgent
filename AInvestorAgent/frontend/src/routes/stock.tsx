@@ -1,113 +1,146 @@
-// frontend/src/routes/stock.tsx
-import React from "react";
-import { useSearchParams } from "react-router-dom";
-import { fetchFundamentals, fetchMetrics, FundamentalsResp, MetricsResp } from "../services/api";
-import FactorCard from "../components/cards/FactorCard";
-import MomentumBars from "../components/charts/MomentumBars";
-// 假设你已有价格图组件
-import PriceChart from "../components/charts/PriceChart";
+import { useEffect, useMemo, useState } from "react";
+import { fetchPriceSeries, type PricePoint, scoreBatch, type ScoreItem } from "../services/endpoints";
 
-function normalizeTo01(v: number, min: number, max: number) {
-  if (!isFinite(v) || max === min) return 0;
-  const x = (v - min) / (max - min);
-  return Math.min(1, Math.max(0, x));
+type QueryMap = Record<string, string>;
+const ranges = [
+  { key: "1mo", label: "1M" },
+  { key: "3mo", label: "3M" },
+  { key: "6mo", label: "6M" },
+  { key: "1y",  label: "1Y" },
+  { key: "ytd", label: "YTD" },
+  { key: "max", label: "MAX" },
+];
+
+function parseQuery(q?: QueryMap): string[] {
+  const raw = (q?.query || "AAPL, MSFT, NVDA").split(",");
+  return raw.map(s => s.trim().toUpperCase()).filter(Boolean);
 }
 
-export default function Stock() {
-  const [sp] = useSearchParams();
-  const [symbol, setSymbol] = React.useState(sp.get("symbol") || "AAPL");
+function formatDate(d: string) {
+  const t = new Date(d);
+  const m = String(t.getMonth()+1).padStart(2, "0");
+  const day = String(t.getDate()).padStart(2, "0");
+  return `${t.getFullYear()}-${m}-${day}`;
+}
 
-  const [fund, setFund] = React.useState<FundamentalsResp | null>(null);
-  const [metr, setMetr] = React.useState<MetricsResp | null>(null);
+export default function StockPage({ query }: { query?: QueryMap }) {
+  const [range, setRange] = useState("6mo");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [series, setSeries] = useState<PricePoint[]>([]);
+  const [score, setScore] = useState<ScoreItem | null>(null);
 
-  const [loadingF, setLoadingF] = React.useState(false);
-  const [loadingM, setLoadingM] = React.useState(false);
-  const [errF, setErrF] = React.useState<string | null>(null);
-  const [errM, setErrM] = React.useState<string | null>(null);
+  const list = parseQuery(query);
+  const symbol = list[0] || "AAPL";
 
-  React.useEffect(() => {
-    setLoadingF(true); setErrF(null);
-    fetchFundamentals(symbol)
-      .then(setFund)
-      .catch(e => setErrF(String(e)))
-      .finally(() => setLoadingF(false));
-  }, [symbol]);
+  // 拉取价格序列 + 评分（评分只是顺带展示）
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      setLoading(true); setErr(null);
+      try {
+        const [px, scores] = await Promise.all([
+          fetchPriceSeries(symbol, { range, limit: 260 }),
+          scoreBatch([symbol]).catch(() => [] as ScoreItem[]),
+        ]);
+        if (dead) return;
+        setSeries(px);
+        setScore(scores.find(s => s.symbol === symbol) || null);
+      } catch (e: any) {
+        if (!dead) setErr(e?.message || "加载失败");
+      } finally {
+        if (!dead) setLoading(false);
+      }
+    })();
+    return () => { dead = true; };
+  }, [symbol, range]);
 
-  React.useEffect(() => {
-    setLoadingM(true); setErrM(null);
-    fetchMetrics(symbol)
-      .then(setMetr)
-      .catch(e => setErrM(String(e)))
-      .finally(() => setLoadingM(false));
-  }, [symbol]);
+  // 计算图形坐标
+  const view = useMemo(() => {
+    if (!series.length) return null;
+    const w = 820, h = 260, pad = 24;
+    const xs = series.map((_, i) => i);
+    const ys = series.map(d => d.close);
 
-  // ---- 基本面 → 四象限标准化（示例口径，与文档一致）
-  // 估值：PB、PE 反向 ⇒ 值越低越好
-  // 质量：ROE、净利率 越高越好
-  // 成长：先与质量同源（若你有TTM增长率后续替换）
-  // 风险：波动率反向（依赖 metrics.volatility）
-  const factors = React.useMemo(() => {
-    if (!fund || !metr) return null;
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const x = (i: number) => pad + (w - pad*2) * (i - xs[0]) / (xs[xs.length-1] - xs[0] || 1);
+    const y = (v: number) => pad + (h - pad*2) * (1 - (v - minY) / (maxY - minY || 1));
 
-    const pe = fund.pe; const pb = fund.pb;
-    const roe = fund.roe; const nm = fund.net_margin;
+    const path = series.map((d, i) => `${i===0?"M":"L"} ${x(i).toFixed(1)} ${y(d.close).toFixed(1)}`).join(" ");
+    const area = `M ${x(xs[0]).toFixed(1)} ${y(minY).toFixed(1)} L ${path.slice(2)} L ${x(xs[xs.length-1]).toFixed(1)} ${y(minY).toFixed(1)} Z`;
 
-    // 简单分位/缩放（可替换为你 factors/transforms 的统一口径）
-    const invPB = 1 - normalizeTo01(pb, 0, 20);
-    const invPE = 1 - normalizeTo01(pe, 0, 60);
-    const value = Math.max(0, Math.min(1, 0.5 * invPB + 0.5 * invPE));
-
-    const qRoe = normalizeTo01(roe, 0, 40);
-    const qNm  = normalizeTo01(nm, 0, 40);
-    const quality = Math.max(0, Math.min(1, 0.5 * qRoe + 0.5 * qNm));
-
-    const growth = quality; // 占位：后续用营收/净利增长替代
-
-    const vol = metr.volatility ?? 0;
-    const risk = 1 - normalizeTo01(vol, 0, 0.1); // 假设 10% 为高波动上限
-
-    return { value, quality, growth, risk };
-  }, [fund, metr]);
-
-  const bars = React.useMemo(() => {
-    if (!metr) return null;
-    return {
-      "1M": Number(metr.one_month_change.toFixed(2)),
-      "3M": Number(metr.three_months_change.toFixed(2)),
-      "12M": Number(metr.twelve_months_change.toFixed(2)),
-    };
-  }, [metr]);
+    return { w, h, pad, minY, maxY, path, area, x, y };
+  }, [series]);
 
   return (
-    <div className="p-4 space-y-4 text-white">
-      <div className="flex items-center gap-2">
-        <input
-          className="bg-[#0f1115] border border-gray-700 rounded-xl px-3 py-2"
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value.trim().toUpperCase())}
-          placeholder="输入股票代码，如 AAPL"
-        />
-        <div className="text-sm opacity-60">个股：行情 + 基本面 + 动量</div>
+    <div className="page">
+      <div className="page-header">
+        <h2>{symbol}</h2>
+        <div className="actions">
+          {ranges.map(r => (
+            <button
+              key={r.key}
+              className={`btn ${range === r.key ? "btn-primary" : ""}`}
+              onClick={() => setRange(r.key)}
+            >{r.label}</button>
+          ))}
+        </div>
       </div>
 
-      {/* 价格折线（你已有组件） */}
-      <PriceChart symbol={symbol} range="3M" />
+      <div className="hint">
+        {score ? <>Score: <b>{score.score}</b>（{score.as_of || "—"}）</> : "Score: 载入中…"}
+      </div>
 
-      {/* 上：基本面雷达 */}
-      <FactorCard
-        loading={loadingF || loadingM}
-        error={errF || errM}
-        factors={factors}
-        updatedAt={fund?.as_of || metr?.as_of}
-      />
+      {loading && <div style={{margin:"12px 0"}}>加载中…</div>}
+      {err && <div className="card" style={{borderColor:"#ff6b6b"}}><div className="card-body">{err}</div></div>}
 
-      {/* 下：动量条形 */}
-      <MomentumBars
-        loading={loadingM}
-        error={errM}
-        bars={bars}
-        updatedAt={metr?.as_of}
-      />
+      {!loading && !err && view && (
+        <div className="chart card">
+          <svg width={view.w} height={view.h}>
+            <defs>
+              <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopOpacity="0.25" />
+                <stop offset="100%" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {/* 网格（简化两条） */}
+            <line x1="24" y1="24" x2={view.w-24} y2="24" stroke="#2b3444" strokeDasharray="4 4"/>
+            <line x1="24" y1={view.h-24} x2={view.w-24} y2={view.h-24} stroke="#2b3444" strokeDasharray="4 4"/>
+
+            {/* 面积 + 折线 */}
+            <path d={view.area} fill="url(#areaFill)" />
+            <path d={view.path} fill="none" strokeWidth="2" />
+
+            {/* 边界值 */}
+            <text x={view.w-60} y={24} fontSize="12" fill="#9fb3c8">{view.maxY.toFixed(2)}</text>
+            <text x={view.w-60} y={view.h-10} fontSize="12" fill="#9fb3c8">{view.minY.toFixed(2)}</text>
+          </svg>
+        </div>
+      )}
+
+      {/* 最近 30 天明细表 */}
+      <div className="card">
+        <div className="card-header"><h3>Recent 30d</h3></div>
+        <div className="table">
+          <div className="thead">
+            <span>Date</span><span>Open</span><span>High</span><span>Low</span><span>Close</span><span>Volume</span>
+          </div>
+          <div className="tbody">
+            {series.slice(-30).reverse().map((d, i) => (
+              <div className="row" key={i}>
+                <span>{formatDate(d.date)}</span>
+                <span>{d.open.toFixed(2)}</span>
+                <span>{d.high.toFixed(2)}</span>
+                <span>{d.low.toFixed(2)}</span>
+                <span>{d.close.toFixed(2)}</span>
+                <span>{d.volume ?? "-"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="hint">在首页搜索框输入代码后会跳到本页（`/#/stock?query=...`），逻辑已沿用你当前首页实现。:contentReference[oaicite:1]{index=1}</div>
     </div>
   );
 }

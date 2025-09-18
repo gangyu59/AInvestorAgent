@@ -1,13 +1,29 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React + TS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AInvestorAgent · Home</title>
+    <!-- 你的样式（这条你已经修对）： -->
+    <link rel="stylesheet" href="src/styles/home.css" />
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Vite 客户端（建议显式声明，便于诊断） -->
+    <script type="module" src="/@vite/client"></script>
+
+    <!-- React Refresh 前导（preamble）——手动保证安装成功 -->
+    <script type="module">
+      import RefreshRuntime from "/@react-refresh";
+      RefreshRuntime.injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = () => (type) => type;
+      window.__vite_plugin_react_preamble_installed__ = true;
+    </script>
+
+    <!-- React 入口（必须有） -->
+    <script type="module" src="src/main.tsx"></script>
   </body>
 </html>
+
