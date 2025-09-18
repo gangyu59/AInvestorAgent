@@ -136,61 +136,109 @@ export type PricePoint = {
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || "";
 
-async function _json<T>(url: string): Promise<T> {
-  const r = await fetch(url);
+async function _json<T>(url: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(url, init);
   if (!r.ok) throw new Error(`HTTP ${r.status} @ ${url}`);
   return r.json();
 }
 
+function _limitForRange(r?: string) {
+  const key = (r || "6mo").toLowerCase();
+  const map: Record<string, number> = {
+    "1mo": 24, "3mo": 75, "6mo": 150, "1y": 260, "ytd": 200, "max": 1000,
+  };
+  return map[key] ?? 150;
+}
+
+function _normDailyPayload(raw: any): PricePoint[] {
+  const arr: any[] =
+    Array.isArray(raw?.items) ? raw.items : // 你测试页就是这个结构
+    Array.isArray(raw?.data) ? raw.data :
+    Array.isArray(raw) ? raw : [];
+  const norm = arr.map((d: any) => ({
+    date: d.date ?? d.ts ?? d.t ?? d[0],
+    // 有些 daily 只返回 close/volume，这里容错：open/high/low=close
+    close: +(d.close ?? d.c ?? d[4]),
+    open: +(d.open ?? d.o ?? d.close ?? d.c ?? d[1] ?? d[4]),
+    high: +(d.high ?? d.h ?? d.close ?? d.c ?? d[2] ?? d[4]),
+    low:  +(d.low  ?? d.l ?? d.close ?? d.c ?? d[3] ?? d[4]),
+    volume: d.volume ?? d.v ?? d[5],
+  }))
+  .filter(x => x.date && Number.isFinite(x.close))
+  .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  return norm;
+}
+
+/** 从 orchestrator/dispatch 的 trace 中提取 Ingestor 输出的 prices（兜底） */
+function _extractPricesFromTrace(raw: any): PricePoint[] | null {
+  const steps: any[] =
+    Array.isArray(raw?.trace) ? raw.trace :
+    Array.isArray(raw?.data?.trace) ? raw.data.trace : [];
+  for (const s of steps) {
+    const name = String(s?.name || s?.agent || s?.step || s?.step_name || "");
+    if (name.toLowerCase().includes("ingest")) {
+      const arr: any[] = s?.data?.prices || s?.result?.data?.prices || [];
+      if (Array.isArray(arr) && arr.length) {
+        const norm = arr.map(d => ({
+          date: d.date ?? d.ts ?? d.t,
+          close: +(d.close ?? d.c),
+          open: +(d.open ?? d.o ?? d.close ?? d.c),
+          high: +(d.high ?? d.h ?? d.close ?? d.c),
+          low:  +(d.low  ?? d.l ?? d.close ?? d.c),
+          volume: d.volume ?? d.v,
+        }))
+        .filter(x => x.date && Number.isFinite(x.close))
+        .sort((a,b)=> new Date(a.date).getTime() - new Date(b.date).getTime());
+        if (norm.length) return norm;
+      }
+    }
+  }
+  return null;
+}
+
 /**
- * 优先调用你已有的价格接口；按候选列表逐个尝试，拿到就规范化返回。
- * 你之前后端有 /api/prices/fetch /daily /query 等接口；这里都做了兼容。
+ * 获取价格序列 —— 与你的测试页一致：
+ * 1) 直接查 /api/prices/daily；2) 若空则先 POST /api/prices/fetch 再查 daily；
+ * 3) 仍无则兜底 orchestrator（可 mock）保证能画图。
  */
 export async function fetchPriceSeries(
   symbol: string,
   opts?: { range?: string; limit?: number; adjusted?: boolean }
 ): Promise<PricePoint[]> {
-  const range = opts?.range ?? "6mo";
-  const limit = opts?.limit ?? 200;
-  const adjusted = opts?.adjusted ?? false;
-
+  const limit = opts?.limit ?? _limitForRange(opts?.range);
   const s = encodeURIComponent(symbol);
-  const cand = [
-    `${API_BASE}/api/prices/series?symbol=${s}&range=${range}&adjusted=${adjusted}`,
-    `${API_BASE}/api/prices/line?symbol=${s}&range=${range}&adjusted=${adjusted}`,
-    `${API_BASE}/api/prices/query?symbol=${s}&limit=${limit}&adjusted=${adjusted}`,
-    `${API_BASE}/api/prices/daily?symbol=${s}&limit=${limit}&adjusted=${adjusted}`,
-    `${API_BASE}/api/prices?symbol=${s}&limit=${limit}&adjusted=${adjusted}`,
-  ];
 
-  let lastErr: any = null;
-  for (const url of cand) {
+  // 1) 直接查 daily
+  try {
+    const raw = await _json<any>(`${API_BASE}/api/prices/daily?symbol=${s}&limit=${limit}`);
+    const norm = _normDailyPayload(raw);
+    if (norm.length) return norm.slice(-limit);
+  } catch { /* 继续 */ }
+
+  // 2) 拉取并入库，然后再查 daily（严格复刻你的测试页做法） :contentReference[oaicite:1]{index=1}
+  try {
+    const fetchUrl = `${API_BASE}/api/prices/fetch?symbol=${s}&adjusted=${opts?.adjusted ?? true}&outputsize=compact`;
+    await _json<any>(fetchUrl, { method: "POST" });                                    // fetch 并入库  :contentReference[oaicite:2]{index=2}
+    const raw2 = await _json<any>(`${API_BASE}/api/prices/daily?symbol=${s}&limit=${limit}`); // 再查 daily  :contentReference[oaicite:3]{index=3}
+    const norm2 = _normDailyPayload(raw2);
+    if (norm2.length) return norm2.slice(-limit);
+  } catch { /* 继续 */ }
+
+  // 3) 兜底：orchestrator（真实→mock）
+  for (const payload of [
+    { symbol, params: { news_days: 7 } },
+    { symbol, params: { news_days: 7, mock: true } },
+  ]) {
     try {
-      const raw = await _json<any>(url);
-      const arr: any[] =
-        Array.isArray(raw) ? raw
-        : Array.isArray(raw?.data) ? raw.data
-        : Array.isArray(raw?.prices) ? raw.prices
-        : Array.isArray(raw?.rows) ? raw.rows
-        : [];
-
-      if (arr.length) {
-        const norm: PricePoint[] = arr.map((d: any) => ({
-          date: d.date ?? d.ts ?? d.t ?? d[0],
-          open: +(d.open ?? d.o ?? d[1]),
-          high: +(d.high ?? d.h ?? d[2]),
-          low:  +(d.low  ?? d.l ?? d[3]),
-          close:+(d.close?? d.c ?? d[4]),
-          volume: d.volume ?? d.v ?? d[5],
-        }))
-        .filter(x => x.date && Number.isFinite(x.close))
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        if (norm.length) return norm;
-      }
-    } catch (e) {
-      lastErr = e;
-    }
+      const raw = await _json<any>(`${API_BASE}/orchestrator/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const norm = _extractPricesFromTrace(raw);
+      if (norm && norm.length) return norm.slice(-limit);
+    } catch { /* ignore and keep trying */ }
   }
-  throw new Error(`无法获取 ${symbol} 的价格数据${lastErr ? `：${String(lastErr)}` : ""}`);
+
+  throw new Error(`无法获取 ${symbol} 的价格数据（daily / fetch / orchestrator 均无返回）`);
 }
