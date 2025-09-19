@@ -85,18 +85,21 @@ export default function HomePage() {
     setError(null);
     try {
       const res = await decideNow({ symbols });
-      setDecide(res);
+      setDecide(res); // 先更新权重/订单/kept —— 页面立刻有变化
 
-      // 如果 decide 没回测，补一次
-      if (!res.context?.backtest) {
-        const bt = await runBacktest({
-          symbols: Object.keys(res.context?.weights || {}),
-          rebalance: "weekly",
-          weeks: 52,
-        });
+      const ctx: any = res?.context ?? {};
+      const bt = ctx["backtest"];
+      if (bt) {
         setBacktest(bt);
       } else {
-        setBacktest(res.context.backtest);
+        const w: Record<string, number> = (ctx["weights"] ?? {}) as Record<string, number>;
+        runBacktest({
+          symbols: Object.keys(w),
+          rebalance: "weekly",
+          weeks: 52,
+        })
+          .then(setBacktest)
+          .catch(() => {}); // 回测不可用时静默
       }
     } catch (e: any) {
       setError(e?.message || "Decide 调用失败");
