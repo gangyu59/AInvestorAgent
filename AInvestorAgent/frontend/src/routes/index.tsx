@@ -1,9 +1,8 @@
-// frontend/src/routes/index.tsx
-// ✅ 修复点：
-// 1) 不再默认导入 React，避免 “Default export is not declared in imported module”
-// 2) Promise.all 使用明确的 Promise 元组 + as const，避免推成联合类型
-// 3) setState 接受的类型完全匹配（ScoreItem[] / SentimentBrief|null / SnapshotBrief|null）
-// 4) 按你要求加回顶栏菜单“个股/组合/模拟/舆情/管理”
+// frontend/src/routes/index.tsx — 安全渲染修复版
+// 关键改动：
+// 1) 新增 fmt()/pct() 安全格式化，杜绝对 null/undefined 调用 toFixed 导致的崩溃
+// 2) 所有 .toFixed(...) 全部替换为 fmt()/pct()；所有 map() 的数据源统一给默认 []
+// 3) UI 逻辑不变，不影响你已跑通的其它页面
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -19,6 +18,12 @@ import {
   type SnapshotBrief,
 } from "../services/endpoints";
 import logoUrl from "/src/assets/images/logo.svg";
+
+// ===== 安全格式化工具 =====
+const fmt = (x: any, d = 2): string =>
+  typeof x === "number" && Number.isFinite(x) ? x.toFixed(d) : "--";
+const pct = (x: any, d = 1): string =>
+  x == null || !Number.isFinite(+x) ? "--" : `${(+x * 100).toFixed(d)}%`;
 
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
 
@@ -39,37 +44,26 @@ export default function HomePage() {
       try {
         setError(null);
 
-        // ① 并发启动三个请求（先启动、后分别 await）
-        const p1: Promise<SnapshotBrief | null> =
-          fetchLastSnapshot().catch(() => null as SnapshotBrief | null);
+        // 并发启动三请求
+        const p1: Promise<SnapshotBrief | null> = fetchLastSnapshot().catch(() => null);
+        const p2: Promise<SentimentBrief | null> = fetchSentimentBrief(symbols).catch(() => null);
+        const p3: Promise<ScoreItem[]> = scoreBatch(symbols).catch(() => []);
 
-        const p2: Promise<SentimentBrief | null> =
-          fetchSentimentBrief(symbols).catch(() => null as SentimentBrief | null);
-
-        const p3: Promise<ScoreItem[]> =
-          scoreBatch(symbols).catch(() => [] as ScoreItem[]);
-
-        // ② 分别 await（仍是并发，因为上面已启动）
-        const snap: SnapshotBrief | null = await p1;
-        const brief: SentimentBrief | null = await p2;
-        const scoring: ScoreItem[] = await p3;
-
-        // ③ 正常写入 state
+        const snap = await p1;
+        const brief = await p2;
+        const scoring = await p3;
         if (!cancelled) {
-          if (snap)  setSnapshot(snap);
+          if (snap) setSnapshot(snap);
           if (brief) setSentiment(brief);
-          setScores(scoring);
+          setScores(scoring || []);
         }
-
       } catch (e: any) {
         if (!cancelled) setError(e?.message || "加载失败");
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []); // 只在首屏加载一次
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 取 top5 权重（来自最新 decide 或 snapshot）
   const keptTop5 = useMemo(() => {
@@ -93,13 +87,9 @@ export default function HomePage() {
         setBacktest(bt);
       } else {
         const w: Record<string, number> = (ctx["weights"] ?? {}) as Record<string, number>;
-        runBacktest({
-          symbols: Object.keys(w),
-          rebalance: "weekly",
-          weeks: 52,
-        })
+        runBacktest({ symbols: Object.keys(w), rebalance: "weekly", weeks: 52 })
           .then(setBacktest)
-          .catch(() => {}); // 回测不可用时静默
+          .catch(() => {});
       }
     } catch (e: any) {
       setError(e?.message || "Decide 调用失败");
@@ -113,11 +103,11 @@ export default function HomePage() {
       {/* ===== 顶栏（sticky） ===== */}
       <header className="topbar">
         <div className="brand">
-          <img src={logoUrl} alt="logo" className="logo"/>
+          <img src={logoUrl} alt="logo" className="logo" />
           <span className="title">AInvestorAgent</span>
         </div>
 
-        {/* 顶部链接菜单（按你要求新增） */}
+        {/* 顶部链接菜单 */}
         <nav className="nav">
           <a href="/#/stock" className="nav-item">个股</a>
           <a href="/#/portfolio" className="nav-item">组合</a>
@@ -208,7 +198,6 @@ export default function HomePage() {
 
         {/* 内容 */}
         <main className="content">
-          {/* 错误提示 */}
           {errorMsg && (
             <div className="card" style={{ borderColor: "#ff6b6b", marginBottom: 12 }}>
               <div className="card-header"><h3>错误</h3></div>
@@ -230,29 +219,27 @@ export default function HomePage() {
                   <div className="kpi">
                     <div className="kpi-label">年化</div>
                     <div className={`kpi-value ${(snapshot?.metrics?.ann_return ?? 0) >= 0 ? "up" : "down"}`}>
-                      {snapshot?.metrics?.ann_return != null ? `${(snapshot!.metrics!.ann_return * 100).toFixed(1)}%` : "--"}
+                      {pct(snapshot?.metrics?.ann_return, 1)}
                     </div>
                   </div>
                   <div className="kpi">
                     <div className="kpi-label">最大回撤</div>
-                    <div className="kpi-value down">
-                      {snapshot?.metrics?.mdd != null ? `${(snapshot!.metrics!.mdd * 100).toFixed(1)}%` : "--"}
-                    </div>
+                    <div className="kpi-value down">{pct(snapshot?.metrics?.mdd, 1)}</div>
                   </div>
                   <div className="kpi">
                     <div className="kpi-label">Sharpe</div>
-                    <div className="kpi-value">{snapshot?.metrics?.sharpe?.toFixed(2) ?? "--"}</div>
+                    <div className="kpi-value">{fmt(snapshot?.metrics?.sharpe, 2)}</div>
                   </div>
                   <div className="kpi">
                     <div className="kpi-label">胜率</div>
                     <div className="kpi-value">
-                      {snapshot?.metrics?.winrate != null ? `${Math.round(snapshot!.metrics!.winrate * 100)}%` : "--"}
+                      {snapshot?.metrics?.winrate == null ? "--" : `${Math.round((snapshot!.metrics!.winrate as number) * 100)}%`}
                     </div>
                   </div>
                 </div>
                 <ul className="list">
                   {(keptTop5.length ? keptTop5 : Object.entries(snapshot?.weights || {}).slice(0, 5)).map(([sym, w]) => (
-                    <li key={sym}>{sym} {(w * 100).toFixed(1)}%</li>
+                    <li key={sym}>{sym} {pct(w, 1)}</li>
                   ))}
                 </ul>
               </div>
@@ -276,9 +263,9 @@ export default function HomePage() {
                   />
                 </div>
                 <div className="hint">
-                  最近一次：kept {(decide?.context?.kept?.length ?? snapshot?.kept?.length ?? 0)},
-                  {" "}orders {(decide?.context?.orders?.length ?? 0)},
-                  {" "}version_tag: {decide?.context?.version_tag || snapshot?.version_tag || "--"}
+                  最近一次：kept {(decide?.context?.kept?.length ?? snapshot?.kept?.length ?? 0)}, {" "}
+                  orders {(decide?.context?.orders?.length ?? 0)}, {" "}
+                  version_tag: {decide?.context?.version_tag || snapshot?.version_tag || "--"}
                 </div>
                 <div className="buttons">
                   <button className="btn btn-primary" onClick={onDecide} disabled={loading}>生成建议</button>
@@ -318,12 +305,12 @@ export default function HomePage() {
                     <span>Symbol</span><span>Score</span><span>因子雷达</span><span>更新时间</span><span></span>
                   </div>
                   <div className="tbody">
-                    {(scores.length ? scores : []).map(it => (
+                    {(scores || []).map(it => (
                       <div className="row" key={it.symbol}>
                         <span>{it.symbol}</span>
                         <span className={`score ${it.score >= 85 ? "good" : it.score >= 70 ? "mid" : "bad"}`}>{it.score}</span>
                         <span className="radar" />
-                        <span>{it.as_of || "--"}</span>
+                        <span>{(it as any).as_of || "--"}</span>
                         <span><a href="/#/portfolio" className="btn tiny">加入组合</a></span>
                       </div>
                     ))}
@@ -340,10 +327,12 @@ export default function HomePage() {
                 <div className="card-body column">
                   <div className="mini-chart line" aria-label="情绪时间轴（示意）" />
                   <ul className="news-list">
-                    {(sentiment?.latest_news || []).slice(0, 5).map((n, i) => (
+                    {((sentiment?.latest_news || []).slice(0, 5)).map((n, i) => (
                       <li key={i}>
                         <a href={n.url} target="_blank" rel="noreferrer">{n.title}</a>
-                        <span className={`pill ${n.score > 0 ? "up" : "flat"}`}>{n.score.toFixed(1)}</span>
+                        <span className={`pill ${((n as any).score ?? 0) > 0 ? "up" : ((n as any).score ?? 0) < 0 ? "down" : "flat"}`}>
+                          {fmt((n as any).score, 1)}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -378,22 +367,20 @@ export default function HomePage() {
                     <div className="kpi">
                       <div className="kpi-label">Ann.Return</div>
                       <div className={`kpi-value ${(backtest?.metrics?.ann_return ?? 0) >= 0 ? "up" : "down"}`}>
-                        {backtest?.metrics?.ann_return != null ? `${(backtest!.metrics!.ann_return * 100).toFixed(1)}%` : "--"}
+                        {pct(backtest?.metrics?.ann_return, 1)}
                       </div>
                     </div>
                     <div className="kpi">
                       <div className="kpi-label">MDD</div>
-                      <div className="kpi-value down">
-                        {backtest?.metrics?.mdd != null ? `${(backtest!.metrics!.mdd * 100).toFixed(1)}%` : "--"}
-                      </div>
+                      <div className="kpi-value down">{pct(backtest?.metrics?.mdd, 1)}</div>
                     </div>
                     <div className="kpi">
                       <div className="kpi-label">Sharpe</div>
-                      <div className="kpi-value">{backtest?.metrics?.sharpe?.toFixed(2) ?? "--"}</div>
+                      <div className="kpi-value">{fmt(backtest?.metrics?.sharpe, 2)}</div>
                     </div>
                     <div className="kpi">
                       <div className="kpi-label">Winrate</div>
-                      <div className="kpi-value">{backtest?.metrics?.winrate != null ? `${Math.round(backtest!.metrics!.winrate * 100)}%` : "--"}</div>
+                      <div className="kpi-value">{backtest?.metrics?.winrate == null ? "--" : `${Math.round((backtest!.metrics!.winrate as number) * 100)}%`}</div>
                     </div>
                   </div>
                 </div>

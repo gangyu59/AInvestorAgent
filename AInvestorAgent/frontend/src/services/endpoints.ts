@@ -250,39 +250,110 @@ export type SentimentBrief = {
   series?: Array<{ date: string; score: number }>;
   latest_news?: Array<{ title: string; url: string; score: number }>;
 };
-export async function fetchSentimentBrief(symbols: string[], days = 7): Promise<SentimentBrief|null> {
+
+export async function fetchSentimentBrief(
+  symbols: string[],
+  days = 14
+): Promise<SentimentBrief | null> {
+  const headers = { "Content-Type": "application/json" };
   const q = encodeURIComponent(symbols.join(","));
-  const cands = [
+
+  // 本地安全解析器（不依赖外部 safeJSON）
+  async function readJson(r: Response): Promise<any> {
+    const t = await r.text();
+    try { return t ? JSON.parse(t) : {}; } catch { return {}; }
+  }
+
+  // 1) 先尝试批量接口（如果你的后端实现了）
+  const batchCandidates = [
     `${API_BASE}/api/sentiment/brief?symbols=${q}&days=${days}`,
     `${API_BASE}/news/sentiment?symbols=${q}&days=${days}`,
   ];
-  for (const u of cands) {
+  for (const u of batchCandidates) {
     try {
       const r = await fetch(u);
-      if (!r.ok) throw new Error(String(r.status));
-      const j = await r.json();
-      return j?.data || j || null;
+      if (!r.ok) continue;
+      const j = await readJson(r);
+      const data = j?.data ?? j;
+      if (Array.isArray(data?.series) || Array.isArray(data?.latest_news)) {
+        return data as SentimentBrief;
+      }
     } catch {}
   }
-  // orchestrator 兜底（从 trace 的 research/news 步骤拿）
-  try {
-    const r = await fetch(`${API_BASE}/orchestrator/dispatch`, {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ symbol: symbols[0], params: { news_days: days } })
-    });
-    if (r.ok) {
-      const j = await r.json();
-      const steps = j?.trace || j?.data?.trace || [];
-      for (const s of steps) {
-        const data = s?.data || s?.result?.data;
-        if (data?.sentiment || data?.latest_news) {
-          return { series: data.series || data.sentiment, latest_news: data.latest_news };
+
+  // 2) 逐个 symbol：/api/news/series + /api/news/fetch 聚合为 brief
+  const dateMap = new Map<string, { sum: number; cnt: number }>();
+  const headlines: { title: string; url: string; published_at?: string; score?: number }[] = [];
+
+  for (const sym0 of symbols) {
+    const sym = encodeURIComponent(sym0);
+
+    // 2.1 时间轴情绪
+    try {
+      const r = await fetch(`${API_BASE}/api/news/series?symbol=${sym}&days=${days}`);
+      if (r.ok) {
+        const j = await readJson(r);
+        const tl: any[] = j?.data?.timeline ?? j?.timeline ?? [];
+        for (const row of tl) {
+          const date = String(row?.date ?? row?.d ?? "").slice(0, 10);
+          if (!date) continue;
+
+          // 支持直接 sentiment 或 正/负/中计数
+          let score: number | undefined = row?.sentiment;
+          if (score == null && (row?.count_pos != null || row?.count_neg != null)) {
+            const pos = +row.count_pos || 0;
+            const neg = +row.count_neg || 0;
+            const neu = +row.count_neu || 0;
+            const tot = pos + neg + neu || 1;
+            score = (pos - neg) / tot; // [-1,1]
+          }
+          if (typeof score === "number" && isFinite(score)) {
+            const cur = dateMap.get(date) || { sum: 0, cnt: 0 };
+            cur.sum += score;
+            cur.cnt += 1;
+            dateMap.set(date, cur);
+          }
         }
       }
-    }
-  } catch {}
+    } catch {}
+
+    // 2.2 最新新闻
+    try {
+      const r2 = await fetch(
+        `${API_BASE}/api/news/fetch?symbol=${sym}&days=${days}`,
+        { method: "POST", headers }
+      );
+      if (r2.ok) {
+        const j2 = await readJson(r2);
+        const list: any[] = j2?.data ?? j2 ?? [];
+        for (const it of list) {
+          headlines.push({
+            title: it?.title || "",
+            url: it?.url || "#",
+            published_at: it?.published_at,
+            score: it?.score,
+          });
+        }
+      }
+    } catch {}
+  }
+
+  // 汇总为 brief
+  const dates = Array.from(dateMap.keys()).sort();
+  const series = dates.map((d) => {
+    const x = dateMap.get(d)!;
+    return { date: d, score: x.sum / x.cnt };
+  });
+
+  headlines.sort((a, b) =>
+    String(b.published_at || "").localeCompare(String(a.published_at || ""))
+  );
+  const latest_news = headlines.slice(0, 30).map(({ title, url, score }) => ({ title, url, score }));
+
+  if (series.length || latest_news.length) return { series, latest_news };
   return null;
 }
+
 
 // ========== Rules ==========
 export type Rules = {
