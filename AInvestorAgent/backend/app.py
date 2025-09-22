@@ -16,8 +16,7 @@ from backend.api.viz import router as viz_router
 from backend.api.trace import router as trace_router
 from backend.api.routers import sim
 from backend.api.routers import analyze
-
-
+from backend.api.routers import sentiment   # 新增
 
 # backend/app.py 的顶部 import 里加
 from fastapi.staticfiles import StaticFiles
@@ -48,7 +47,7 @@ app.include_router(viz_router, prefix="/api")
 app.include_router(trace_router, prefix="/api")
 app.include_router(sim.router)
 app.include_router(analyze.router)
-
+app.include_router(sentiment.router)
 
 # 静态挂载 /reports 以便前端能打开 last_report.html
 REPORT_DIR = os.path.join(os.path.dirname(__file__), "reports")
