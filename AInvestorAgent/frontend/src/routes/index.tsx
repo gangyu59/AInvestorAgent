@@ -18,6 +18,8 @@ import {
   type SnapshotBrief,
 } from "../services/endpoints";
 import logoUrl from "/src/assets/images/logo.svg";
+import { analyzeEndpoint } from "../services/endpoints";
+
 
 // ===== 安全格式化工具 =====
 const fmt = (x: any, d = 2): string =>
@@ -339,6 +341,41 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
+
+
+            <div className="card">
+              <div className="card-header">
+                <h3>Analyze Snapshot</h3>
+                <a href="/#/stock" className="link">到个股页 →</a>
+              </div>
+              <div className="card-body column">
+                <div className="row" style={{gap: 8}}>
+                  <input id="analyzeSym" defaultValue="AAPL" />
+                  <button className="btn"
+                    onClick={async ()=>{
+                      const base = (import.meta as any).env?.VITE_API_BASE || "";
+                      const sym = (document.getElementById("analyzeSym") as HTMLInputElement).value.trim().toUpperCase() || "AAPL";
+                      try{
+                        const r = await fetch(analyzeEndpoint(sym));
+                        if(!r.ok) throw new Error(String(r.status));
+                        const data = await r.json();
+                        (document.getElementById("analyzeOut") as HTMLDivElement).textContent =
+                          `score=${data?.score?.score ?? "--"} `
+                          + ` | value=${(data?.factors?.value ?? null)} `
+                          + ` quality=${(data?.factors?.quality ?? null)} `
+                          + ` momentum=${(data?.factors?.momentum ?? null)} `
+                          + ` sentiment=${(data?.factors?.sentiment ?? null)}`;
+                      }catch(e:any){
+                        (document.getElementById("analyzeOut") as HTMLDivElement).textContent = "❌ " + (e?.message || "fetch失败");
+                      }
+                    }}>
+                    运行 /api/analyze
+                  </button>
+                </div>
+                <div id="analyzeOut" style={{fontFamily:"ui-monospace,monospace",fontSize:12,marginTop:8,color:"#111"}}>（等待运行）</div>
+              </div>
+            </div>
+
 
             <div className="stack">
               {/* Risk */}

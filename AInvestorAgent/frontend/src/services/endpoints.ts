@@ -31,6 +31,9 @@ export async function scoreBatch(symbols: string[]): Promise<ScoreItem[]> {
   return Array.isArray(j) ? (j as ScoreItem[]) : (j.items || []);
 }
 
+// ✅ 新增一个“分析接口”的工具函数，沿用你已有的 API 基础URL
+export const analyzeEndpoint = (symbol: string) =>
+  `${API}/api/analyze/${encodeURIComponent(symbol)}`;
 
 
 // ====== Price Series ======
