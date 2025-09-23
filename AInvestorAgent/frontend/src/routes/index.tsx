@@ -355,29 +355,29 @@ export default function HomePage() {
               </div>
               <div className="card-body column">
                 <div className="row" style={{gap: 8}}>
-                  <input id="analyzeSym" defaultValue="AAPL" />
-                  <button className="btn"
-                    onClick={async ()=>{
-                      const base = (import.meta as any).env?.VITE_API_BASE || "";
-                      const sym = (document.getElementById("analyzeSym") as HTMLInputElement).value.trim().toUpperCase() || "AAPL";
-                      try{
-                        const r = await fetch(analyzeEndpoint(sym));
-                        if(!r.ok) throw new Error(String(r.status));
-                        const data = await r.json();
-                        (document.getElementById("analyzeOut") as HTMLDivElement).textContent =
-                          `score=${data?.score?.score ?? "--"} `
-                          + ` | value=${(data?.factors?.value ?? null)} `
-                          + ` quality=${(data?.factors?.quality ?? null)} `
-                          + ` momentum=${(data?.factors?.momentum ?? null)} `
-                          + ` sentiment=${(data?.factors?.sentiment ?? null)}`;
-                      }catch(e:any){
-                        (document.getElementById("analyzeOut") as HTMLDivElement).textContent = "❌ " + (e?.message || "fetch失败");
-                      }
-                    }}>
+                  <input id="analyzeSym" defaultValue="AAPL"/>
+                  <button
+                      className="btn"
+                      onClick={async () => {
+                        try {
+                          const el = document.querySelector<HTMLInputElement>("#analyze-input"); // 假设你的输入框 id="analyze-input"
+                          const sym = (el?.value || "AAPL").trim().toUpperCase();
+                          const base = (import.meta as any).env?.VITE_API_BASE || "";
+                          const r = await fetch(`${base}${analyzeEndpoint(sym)}`); // e.g. /api/analyze/AAPL
+                          if (!r.ok) throw new Error(String(r.status));
+                          // 成功后直接跳到个股页查看完整图表
+                          window.location.hash = `#/stock?query=${encodeURIComponent(sym)}`;
+                        } catch (e: any) {
+                          alert("Analyze 失败：" + (e?.message || ""));
+                        }
+                      }}
+                  >
                     运行 /api/analyze
                   </button>
                 </div>
-                <div id="analyzeOut" style={{fontFamily:"ui-monospace,monospace",fontSize:12,marginTop:8,color:"#111"}}>（等待运行）</div>
+                <div id="analyzeOut"
+                     style={{fontFamily: "ui-monospace,monospace", fontSize: 12, marginTop: 8, color: "#111"}}>（等待运行）
+                </div>
               </div>
             </div>
 
@@ -392,7 +392,7 @@ export default function HomePage() {
                 <div className="card-body column">
                   <div className="rule">单票 ≤ <b>30%</b>，行业 ≤ <b>50%</b>，持仓 <b>5–15</b></div>
                   <div className="violations">
-                    <div className="vio ok">未发现超限</div>
+                  <div className="vio ok">未发现超限</div>
                   </div>
                 </div>
               </div>

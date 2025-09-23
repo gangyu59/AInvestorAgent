@@ -5,15 +5,13 @@ import sys
 from datetime import date
 from typing import List
 
-# --- 让 import backend.* 在任何路径下都能工作 ---
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.storage.db import SessionLocal
 from backend.storage import dao
-from backend.scoring.scorer import compute_factors, aggregate_score, upsert_scores  # 你已有
-
+from backend.scoring.scorer import compute_factors, aggregate_score, upsert_scores
 
 def _default_symbols(session) -> List[str]:
     try:
@@ -23,7 +21,6 @@ def _default_symbols(session) -> List[str]:
     except Exception:
         pass
     return ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AMD","AVGO","ADBE"]
-
 
 def main(argv=None):
     import argparse
@@ -47,16 +44,16 @@ def main(argv=None):
         done = 0
         for sym in symbols:
             try:
-                rows = compute_factors(s, [sym], asof, mock=False)
+                rows = compute_factors(s, [sym], asof)  # ✅ 去掉 mock=
                 if not rows:
                     print(f"  ⚠️ {sym}: 无因子")
                     continue
                 r = rows[0]
-                total = float(aggregate_score(r))  # 你已有：综合 0–100
+                total = float(aggregate_score(r))  # 0–100
                 setattr(r, "score", total)         # 与 upsert_scores 约定一致
                 upsert_scores(s, asof, [r], version_tag=version_tag)
-                done += 1
                 print(f"  ✅ {sym}: score={total:.1f}")
+                done += 1
             except Exception as e:
                 print(f"  ❌ {sym}: {e}")
 

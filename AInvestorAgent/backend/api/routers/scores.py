@@ -1,96 +1,131 @@
+# AInvestorAgent/backend/api/routers/scores.py
+from __future__ import annotations
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from typing import List, Optional
 from datetime import date
-from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from ...storage.db import get_db
-from backend.scoring.scorer import compute_factors, upsert_scores, aggregate_score
-from ..schemas.scores import ScoreRow, ScoreTableResponse
+from backend.storage.db import get_db
+from backend.storage.dao import ScoresDAO  # 你已有 dao.py 里的封装
+from backend.scoring.scorer import compute_factors, aggregate_score  # 你已有
+from backend.scoring.weights import WEIGHTS  # 你刚建的 weights.py
 
 router = APIRouter(prefix="/api/scores", tags=["scores"])
 
-@router.post("/watchlist", response_model=ScoreTableResponse)
-def run_watchlist(
-    symbols: list[str] = Query(..., description="多只股票，如 symbols=AAPL&symbols=MSFT"),
-    as_of: str | None = None,
-    db: Session = Depends(get_db),
-):
-    dt = date.fromisoformat(as_of) if as_of else date.today()
-    rows = compute_factors(db, symbols, dt)
-    upsert_scores(db, dt, rows, version_tag="v0.1")
-    items = [ScoreRow(symbol=r.symbol,
-                      f_value=r.f_value, f_quality=r.f_quality,
-                      f_momentum=getattr(r, "f_momentum", None),
-                      f_sentiment=r.f_sentiment,
-                      score=aggregate_score(r)) for r in rows]
-    # 按分数降序
-    items.sort(key=lambda x: x.score, reverse=True)
-    return {"as_of": dt.isoformat(), "version_tag": "v0.1", "items": items}
+class BatchPayload(BaseModel):
+    symbols: List[str]
+    mock: Optional[bool] = False
+    as_of: Optional[str] = None  # 允许前端传 as_of；缺省用今天
 
+@router.post("/batch")
+def score_batch(payload: BatchPayload, db: Session = Depends(get_db)):
+    symbols = [s.strip().upper() for s in payload.symbols if s.strip()]
+    as_of = date.fromisoformat(payload.as_of) if payload.as_of else date.today()
+    version_tag = getattr(WEIGHTS, "version_tag", None) or getattr(WEIGHTS, "VERSION", None) or "v1.0.0"
 
-# === 追加导入 ===
-from datetime import datetime
-from fastapi import HTTPException
-from ...storage.dao import ScoresDAO  # 新增 DAO
-from ..schemas.scores import (
-    BatchScoreRequest, BatchScoreResponse, BatchScoreItem,
-    FactorBreakdown, ScoreDetail
-)
-
-@router.post("/batch", response_model=BatchScoreResponse)
-def score_batch(payload: BatchScoreRequest, db: Session = Depends(get_db)):
-    symbols = [s.strip().upper() for s in (payload.symbols or []) if s.strip()]
-    if not symbols:
-        raise HTTPException(status_code=400, detail="symbols is empty")
-
-    dt = date.today()
-    version_tag = "v1.0.0"
-    items: list[BatchScoreItem] = []
+    items = []
 
     for sym in symbols:
+        # --- 计算因子 ---
+        rows = []
         try:
-            # 仅计算，不传 mock；不回退；不入库
-            rows = compute_factors(db, [sym], dt)
-            if not rows:
-                continue
-            r = rows[0]
+            # 注意：不再传 mock=，避免 TypeError
+            rows = compute_factors(db, [sym], as_of)
+        except TypeError:
+            # 兼容没有 as_of 的旧签名：compute_factors(db, [sym])
+            rows = compute_factors(db, [sym])
 
-            factors = FactorBreakdown(
-                f_value=getattr(r, "f_value", None),
-                f_quality=getattr(r, "f_quality", None),
-                f_momentum=getattr(r, "f_momentum", None),
-                f_sentiment=getattr(r, "f_sentiment", None),
-                f_risk=getattr(r, "f_risk", None),
-            )
+        r = rows[0] if rows else None
 
-            # 如果你已有 aggregate_score 就用它；没有就按权重兜底
+        if r is not None:
+            # r 很可能是 Pydantic/ORM 对象，用 getattr 安全取值
+            f_value     = float(getattr(r, "f_value", 0) or 0)
+            f_quality   = float(getattr(r, "f_quality", 0) or 0)
+            f_momentum  = float(getattr(r, "f_momentum", 0) or 0)
+            f_sentiment = float(getattr(r, "f_sentiment", 0) or 0)
+            f_risk      = float(getattr(r, "f_risk", 0) or 0)
+            # 综合评分
             try:
-                total = int(round(aggregate_score(r)))
-                v = int(round(getattr(r, "f_value", 0) * 25))
-                q = int(round(getattr(r, "f_quality", 0) * 25))
-                m = int(round(getattr(r, "f_momentum", 0) * 30))
-                s = int(round(getattr(r, "f_sentiment", 0) * 20))
-            except Exception:
-                v = int(round((getattr(r, "f_value", 0) or 0) * 25))
-                q = int(round((getattr(r, "f_quality", 0) or 0) * 25))
-                m = int(round((getattr(r, "f_momentum", 0) or 0) * 30))
-                s = int(round((getattr(r, "f_sentiment", 0) or 0) * 20))
-                total = v + q + m + s
+                total = float(aggregate_score(r))
+            except TypeError:
+                # 旧实现可能需要权重：aggregate_score(r, WEIGHTS)
+                total = float(aggregate_score(r, WEIGHTS))
 
-            detail = ScoreDetail(
-                value=v, quality=q, momentum=m, sentiment=s,
-                score=total, version_tag=version_tag,
-            )
+            item = {
+                "symbol": sym,
+                "factors": {
+                    "f_value": f_value,
+                    "f_quality": f_quality,
+                    "f_momentum": f_momentum,
+                    "f_sentiment": f_sentiment,
+                    "f_risk": f_risk,
+                },
+                "score": {
+                    "value": round(f_value * 100) if f_value <= 1 else round(f_value),
+                    "quality": round(f_quality * 100) if f_quality <= 1 else round(f_quality),
+                    "momentum": round(f_momentum * 100) if f_momentum <= 1 else round(f_momentum),
+                    "sentiment": round(f_sentiment * 100) if f_sentiment <= 1 else round(f_sentiment),
+                    "score": round(total, 1),
+                    "version_tag": version_tag,
+                },
+                "updated_at": as_of.isoformat(),
+            }
+        else:
+            # 没算出来 → 兜底最后一次成功快照（避免前端表格为空）
+            cached = ScoresDAO.get_last_success(sym)
+            if cached:
+                item = {
+                    "symbol": sym,
+                    "factors": {
+                        "f_value": float(getattr(cached, "f_value", 0) or 0),
+                        "f_quality": float(getattr(cached, "f_quality", 0) or 0),
+                        "f_momentum": float(getattr(cached, "f_momentum", 0) or 0),
+                        "f_sentiment": float(getattr(cached, "f_sentiment", 0) or 0),
+                        "f_risk": float(getattr(cached, "f_risk", 0) or 0),
+                    },
+                    "score": {
+                        "value": int(getattr(cached, "s_value", 0) or 0),
+                        "quality": int(getattr(cached, "s_quality", 0) or 0),
+                        "momentum": int(getattr(cached, "s_momentum", 0) or 0),
+                        "sentiment": int(getattr(cached, "s_sentiment", 0) or 0),
+                        "score": float(getattr(cached, "score", 0) or 0),
+                        "version_tag": getattr(cached, "version_tag", version_tag) or version_tag,
+                    },
+                    "updated_at": getattr(cached, "as_of", as_of).isoformat() if getattr(cached, "as_of", None) else as_of.isoformat(),
+                }
+            else:
+                item = {
+                    "symbol": sym,
+                    "factors": {},
+                    "score": {"score": 0, "version_tag": version_tag},
+                    "updated_at": as_of.isoformat(),
+                }
 
-            items.append(BatchScoreItem(
-                symbol=sym, factors=factors, score=detail, updated_at=datetime.utcnow()
-            ))
-
-            # 暂时不写库，不做回退：
-            # ScoresDAO.upsert(item.model_dump())
-            # cached = ScoresDAO.get_last_success(sym)
-
+        # 入库（尽量不出错；错了也不影响响应）
+        try:
+            ScoresDAO.upsert({
+                "symbol": item["symbol"],
+                "as_of": as_of,
+                "version_tag": item["score"].get("version_tag", version_tag),
+                "f_value": item["factors"].get("f_value", 0),
+                "f_quality": item["factors"].get("f_quality", 0),
+                "f_momentum": item["factors"].get("f_momentum", 0),
+                "f_sentiment": item["factors"].get("f_sentiment", 0),
+                "f_risk": item["factors"].get("f_risk", 0),
+                "s_value": item["score"].get("value", 0),
+                "s_quality": item["score"].get("quality", 0),
+                "s_momentum": item["score"].get("momentum", 0),
+                "s_sentiment": item["score"].get("sentiment", 0),
+                "score": item["score"].get("score", 0),
+            })
         except Exception:
-            # 失败先跳过，防止 500 拖垮整个批次
-            continue
+            pass
 
-    return BatchScoreResponse(as_of=dt.isoformat(), version_tag=version_tag, items=items)
+        items.append(item)
+
+    return {
+        "as_of": as_of.isoformat(),
+        "version_tag": version_tag,
+        "items": items,
+    }

@@ -77,51 +77,64 @@ def runs_last_week(db: Session, job: str) -> int:
 
 
 # === 追加开始：ScoresDAO ===
-from typing import Optional, Dict, Any, List
-from sqlalchemy import select, and_
-from .db import SessionLocal
-from .models import ScoreDaily  # 你已有的 ORM 模型（scores_daily 表）
+# backend/storage/dao.py
+from datetime import datetime
+from sqlalchemy import and_
+from .models import ScoreDaily   # 你已有的 ORM 模型
+
+# AInvestorAgent/backend/storage/dao.py （节选：替换这两个方法）
 
 class ScoresDAO:
     @staticmethod
-    def upsert(item: Dict[str, Any]) -> None:
+    def upsert(payload: dict):
         """
-        item: {
-          "symbol": str,
-          "factors": {"f_value":..., "f_quality":..., "f_momentum":..., "f_sentiment":..., "f_risk":...},
-          "score": {"value":int,"quality":int,"momentum":int,"sentiment":int,"score":int,"version_tag":str},
-          "updated_at": datetime
-        }
+        以 (symbol, as_of, version_tag) 唯一标识一条评分记录：
+        如果已存在 -> 更新；不存在 -> 插入；
+        若历史上有重复 -> 取最新一条更新，忽略其它重复。
         """
+        from sqlalchemy import select
+        from backend.storage.models import ScoreDaily  # 你的 ORM 模型名保持不变
+
         with SessionLocal() as s:
-            row = s.execute(
-                select(ScoreDaily).where(ScoreDaily.symbol == item["symbol"])
-            ).scalar_one_or_none()
-            if row is None:
-                row = ScoreDaily(symbol=item["symbol"])
+            q = (
+                select(ScoreDaily)
+                .where(
+                    ScoreDaily.symbol == payload["symbol"],
+                    ScoreDaily.as_of == payload["as_of"],
+                    ScoreDaily.version_tag == payload.get("version_tag", "v1.0.0"),
+                )
+                .order_by(ScoreDaily.id.desc())  # 没有 updated_at 就按自增 id
+            )
+            rows = s.execute(q).scalars().all()
+            if rows:
+                row = rows[0]
+                for k, v in payload.items():
+                    if hasattr(row, k):
+                        setattr(row, k, v)
+            else:
+                row = ScoreDaily(**payload)
                 s.add(row)
-            # 这里假设 ScoreDaily 有 JSON 列 factors/detail（或等价）
-            row.factors = item["factors"]
-            row.detail = item["score"]
-            row.updated_at = item["updated_at"]
             s.commit()
+            return row
 
     @staticmethod
-    def get_last_success(symbol: str) -> Optional[Dict[str, Any]]:
+    def get_last_success(symbol: str):
+        """
+        返回某个 symbol 最近一次成功评分（按 as_of 或 id 倒序）。
+        """
+        from sqlalchemy import select
+        from backend.storage.models import ScoreDaily
+
         with SessionLocal() as s:
-            row = (
-                s.execute(
-                    select(ScoreDaily)
-                    .where(ScoreDaily.symbol == symbol)
-                    .order_by(ScoreDaily.updated_at.desc())
-                ).scalar_one_or_none()
+            q = (
+                select(ScoreDaily)
+                .where(ScoreDaily.symbol == symbol)
+                .order_by(
+                    getattr(ScoreDaily, "as_of", None).desc()
+                    if hasattr(ScoreDaily, "as_of") else
+                    ScoreDaily.id.desc()
+                )
+                .limit(1)
             )
-            if not row:
-                return None
-            return {
-                "symbol": symbol,
-                "factors": row.factors,
-                "score": row.detail,
-                "updated_at": row.updated_at,
-            }
+            return s.execute(q).scalars().first()
 

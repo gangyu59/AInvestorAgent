@@ -2,13 +2,15 @@
 import { useEffect, useMemo, useState } from "react";
 
 // 兼容两种导出方式：default 或 命名导出 RadarFactors
+// （不要改路径：按你的文件树在 components/charts/ 下）
 import * as RadarModule from "../components/charts/RadarFactors";
 const RadarFactors: any =
   (RadarModule as any).default ??
   (RadarModule as any).RadarFactors ??
   (RadarModule as any);
 
-// ============= 仅用于“批量评分 Watchlist”的最小 API 封装 =============
+// ============= 仅用于“批量评分 Watchlist”的局部 API 封装 =============
+// 不依赖 endpoints.ts；也不导出任何全局常量，避免重复定义冲突
 async function scoreBatch(symbols: string[], mock = false) {
   const resp = await fetch("/api/scores/batch", {
     method: "POST",
@@ -19,32 +21,14 @@ async function scoreBatch(symbols: string[], mock = false) {
     const text = await resp.text().catch(() => "");
     throw new Error(`HTTP ${resp.status} /api/scores/batch ${text}`);
   }
-  const data = (await resp.json()) as {
-    as_of: string;
-    version_tag: string;
-    items: {
-      symbol: string;
-      factors?: {
-        f_value?: number;
-        f_quality?: number;
-        f_momentum?: number;
-        f_sentiment?: number;
-        f_risk?: number;
-      };
-      score?: {
-        value?: number;
-        quality?: number;
-        momentum?: number;
-        sentiment?: number;
-        score?: number;
-        version_tag?: string;
-      };
-      updated_at?: string;
-    }[];
+  return (await resp.json()) as {
+    as_of?: string;
+    version_tag?: string;
+    items: BatchItem[];
   };
-  return data;
 }
 
+// ============= 类型（宽松即可跑通） =============
 type BatchItem = {
   symbol: string;
   factors?: {
@@ -74,21 +58,11 @@ type SortKey =
   | "sentiment"
   | "updated_at";
 
-const DEFAULT_LIST = [
-  "AAPL",
-  "MSFT",
-  "NVDA",
-  "AMZN",
-  "GOOGL",
-  "META",
-  "TSLA",
-  "AMD",
-  "AVGO",
-  "ADBE",
-];
+const DEFAULT_LIST = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "AVGO", "ADBE"];
 
+// ============= 页面组件 =============
 export default function ManagePage() {
-  const [symbolsText, setSymbolsText] = useState<string>(DEFAULT_LIST.join(","));
+  const [symbolsText, setSymbolsText] = useState(DEFAULT_LIST.join(","));
   const [rows, setRows] = useState<BatchItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -96,6 +70,7 @@ export default function ManagePage() {
 
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [asc, setAsc] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]); // “加入组合”临时选择
 
   const symbols = useMemo(
     () =>
@@ -112,7 +87,8 @@ export default function ManagePage() {
     try {
       const data = await scoreBatch(symbols, false);
       const items = (data.items || []).filter(Boolean);
-      items.sort((a, b) => (b.score?.score || 0) - (a.score?.score || 0)); // 默认总分降序
+      // 默认按总分降序
+      items.sort((a, b) => (b.score?.score || 0) - (a.score?.score || 0));
       setRows(items);
       setInfo({ as_of: data.as_of, version: data.version_tag });
     } catch (e: any) {
@@ -123,7 +99,7 @@ export default function ManagePage() {
   }
 
   useEffect(() => {
-    void load(); // 初次加载（void 去除“Missing await”告警）
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -164,26 +140,24 @@ export default function ManagePage() {
     }
   };
 
+  const togglePick = (sym: string) => {
+    setPicked((prev) => (prev.includes(sym) ? prev.filter((s) => s !== sym) : [...prev, sym]));
+  };
+
   return (
     <div className="page" style={{ padding: 16 }}>
       <div className="page-header" style={{ marginBottom: 12 }}>
         <h2>Watchlist 批量评分</h2>
         {info && (
           <div style={{ color: "#6b7280", fontSize: 12 }}>
-            as_of: {info.as_of} · version: {info.version}
+            as_of: {info.as_of || "--"} · version: {info.version || "--"}
           </div>
         )}
       </div>
 
       <div
         className="toolbar"
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-          flexWrap: "wrap",
-          marginBottom: 12,
-        }}
+        style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}
       >
         <input
           className="input"
@@ -192,14 +166,14 @@ export default function ManagePage() {
           onChange={(e) => setSymbolsText(e.target.value)}
           style={{ minWidth: 520, height: 36, padding: "0 10px" }}
         />
-        <button
-          className="btn"
-          onClick={() => void load()}
-          disabled={loading}
-          style={{ height: 36 }}
-        >
+        <button className="btn" onClick={() => void load()} disabled={loading} style={{ height: 36 }}>
           {loading ? "加载中…" : "刷新评分"}
         </button>
+        {picked.length > 0 && (
+          <span style={{ marginLeft: 8, fontSize: 12, color: "#10b981" }}>
+            已选 {picked.length} 只（用于组合）
+          </span>
+        )}
       </div>
 
       {err && (
@@ -231,45 +205,58 @@ export default function ManagePage() {
               <Th onClick={() => onSort("sentiment")} label="情绪" active={sortKey === "sentiment"} asc={asc} />
               <Th onClick={() => onSort("updated_at")} label="更新时间" active={sortKey === "updated_at"} asc={asc} />
               <th style={thStyle}>版本</th>
+              <th style={thStyle}>到个股页</th>
+              <th style={thStyle}>加入组合</th>
             </tr>
           </thead>
+
           <tbody>
             {sorted.map((r) => {
-              const f = r.factors || {};
               const s = r.score || {};
+              const radar = {
+                value: (r.factors?.f_value ?? s.value ?? 0) / 100,
+                quality: (r.factors?.f_quality ?? s.quality ?? 0) / 100,
+                momentum: (r.factors?.f_momentum ?? s.momentum ?? 0) / 100,
+                sentiment: (r.factors?.f_sentiment ?? s.sentiment ?? 0) / 100,
+                risk: (r.factors?.f_risk ?? 0) / 100,
+              };
+              const updated = r.updated_at || info?.as_of || "--";
+              const version = s.version_tag || info?.version || "--";
+              const href = `/#/stock?symbol=${encodeURIComponent(r.symbol)}`;
+
               return (
                 <tr key={r.symbol}>
                   <Td>{r.symbol}</Td>
                   <Td bold>{fmtNum(s.score, 1, "--")}</Td>
+
                   <td style={tdStyle}>
-                    <div style={{ width: 140, height: 90 }}>
-                      <RadarFactors
-                        data={{
-                          value: f.f_value ?? 0,
-                          quality: f.f_quality ?? 0,
-                          momentum: f.f_momentum ?? 0,
-                          sentiment: f.f_sentiment ?? 0,
-                          risk: f.f_risk ?? 0,
-                        }}
-                        factors={{
-                          value: f.f_value ?? 0,
-                          quality: f.f_quality ?? 0,
-                          momentum: f.f_momentum ?? 0,
-                          sentiment: f.f_sentiment ?? 0,
-                          risk: f.f_risk ?? 0,
-                        }}
-                        compact
-                        mini
-                        size="sm"
-                      />
+                    <div style={{ width: 84, height: 72 }}>
+                      {/* RadarFactors 已存在于你的组件库，这里按“迷你”形态使用 */}
+                      <RadarFactors data={radar} mini />
                     </div>
                   </td>
-                  <Td>{fmtNum(s.value, 0, "-")}</Td>
-                  <Td>{fmtNum(s.quality, 0, "-")}</Td>
-                  <Td>{fmtNum(s.momentum, 0, "-")}</Td>
-                  <Td>{fmtNum(s.sentiment, 0, "-")}</Td>
-                  <Td>{r.updated_at ? new Date(r.updated_at).toLocaleString() : "-"}</Td>
-                  <Td>{s.version_tag || info?.version || "-"}</Td>
+
+                  <Td>{fmtNum(s.value, 1, "--")}</Td>
+                  <Td>{fmtNum(s.quality, 1, "--")}</Td>
+                  <Td>{fmtNum(s.momentum, 1, "--")}</Td>
+                  <Td>{fmtNum(s.sentiment, 1, "--")}</Td>
+                  <Td>{updated}</Td>
+                  <Td>{version}</Td>
+
+                  <td style={tdStyle}>
+                    <a href={href} style={{ textDecoration: "underline" }}>
+                      查看
+                    </a>
+                  </td>
+                  <td style={tdStyle}>
+                    <button
+                      className="btn"
+                      onClick={() => togglePick(r.symbol)}
+                      style={{ height: 28, padding: "0 10px" }}
+                    >
+                      {picked.includes(r.symbol) ? "移除" : "加入"}
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -280,49 +267,63 @@ export default function ManagePage() {
   );
 }
 
-// ===== 轻量 UI 组件 =====
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "10px 8px",
-  borderBottom: "1px solid #e5e7eb",
-  whiteSpace: "nowrap",
-  cursor: "pointer",
-  userSelect: "none",
-  fontWeight: 600,
-};
-const tdStyle: React.CSSProperties = {
-  padding: "10px 8px",
-  borderBottom: "1px solid #f3f4f6",
-  whiteSpace: "nowrap",
-  verticalAlign: "middle",
-};
+// ============= 小工具 =============
+function fmtNum(v?: number, d = 1, fallback = "--") {
+  if (v === undefined || v === null || Number.isNaN(v)) return fallback;
+  return Number(v).toFixed(d);
+}
 
 function Th({
-  label,
   onClick,
+  label,
   active,
   asc,
 }: {
-  label: string;
   onClick: () => void;
+  label: string;
   active?: boolean;
   asc?: boolean;
 }) {
   return (
-    <th onClick={onClick} style={{ ...thStyle, color: active ? "#111827" : "#374151" }}>
-      {label}
-      {active && <span style={{ marginLeft: 4, opacity: 0.7 }}>{asc ? "▲" : "▼"}</span>}
+    <th
+      onClick={onClick}
+      style={{
+        ...thStyle,
+        cursor: "pointer",
+        color: active ? "#60a5fa" : undefined,
+        whiteSpace: "nowrap",
+      }}
+      title="点击切换排序"
+    >
+      {label} {active ? (asc ? "↑" : "↓") : ""}
     </th>
   );
 }
 
-function Td({ children, bold }: { children: React.ReactNode; bold?: boolean }) {
-  return <td style={{ ...tdStyle, fontWeight: bold ? 700 : 400 }}>{children}</td>;
+function Td({
+  children,
+  bold,
+}: {
+  children: any;
+  bold?: boolean;
+}) {
+  return (
+    <td style={{ ...tdStyle, fontWeight: bold ? 700 : 400 }}>
+      <span>{children}</span>
+    </td>
+  );
 }
 
-function fmtNum(v: any, fixed = 2, dash = "") {
-  if (v === null || v === undefined || Number.isNaN(v)) return dash;
-  const n = Number(v);
-  if (!Number.isFinite(n)) return dash;
-  return n.toFixed(fixed);
-}
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "10px 8px",
+  borderBottom: "1px solid #e5e7eb",
+  fontWeight: 600,
+  fontSize: 13,
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "10px 8px",
+  borderBottom: "1px solid #f1f5f9",
+  fontSize: 13,
+};
