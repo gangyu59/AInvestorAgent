@@ -3,6 +3,10 @@
 // --------- 配置 ---------
 const API = import.meta.env.VITE_API_BASE || ""; // 你 .env 里用的变量名 VITE_API_BASE
 
+// ✅ 仅此一处定义；其它地方不要重复定义 API_BASE
+export const API_BASE: string = (import.meta as any).env?.VITE_API_BASE ?? "";
+
+
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const ok = (r: Response) => {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -46,7 +50,7 @@ export type PricePoint = {
   volume?: number;
 };
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || "";
+// const API_BASE = (import.meta as any).env?.VITE_API_BASE || "";
 
 async function _json<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);

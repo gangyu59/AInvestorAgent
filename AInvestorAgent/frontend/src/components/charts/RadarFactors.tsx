@@ -1,12 +1,5 @@
 // frontend/src/components/charts/RadarFactors.tsx
-import {
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
-  ResponsiveContainer,
-} from "recharts";
+import ReactECharts from 'echarts-for-react';
 
 interface FactorRadarProps {
   factors: {
@@ -17,30 +10,36 @@ interface FactorRadarProps {
   };
 }
 
+/** 输入可为 0..1 或 0..100，统一按 0..100 显示 */
 export default function RadarFactors({ factors }: FactorRadarProps) {
   if (!factors) return <div>无因子数据</div>;
 
-  const data = [
-    { name: "价值", score: factors.value },
-    { name: "质量", score: factors.quality },
-    { name: "动量", score: factors.momentum },
-    { name: "情绪", score: factors.sentiment },
+  const to100 = (x: number) => (x <= 1 ? x * 100 : x);
+  const vals = [
+    to100(factors.value),
+    to100(factors.quality),
+    to100(factors.momentum),
+    to100(factors.sentiment),
   ];
 
-  return (
-    <ResponsiveContainer width="100%" height={250}>
-      <RadarChart cx="50%" cy="50%" outerRadius="80%" data={data}>
-        <PolarGrid />
-        <PolarAngleAxis dataKey="name" />
-        <PolarRadiusAxis domain={[0, 100]} />
-        <Radar
-          name="因子得分"
-          dataKey="score"
-          stroke="#8884d8"
-          fill="#8884d8"
-          fillOpacity={0.6}
-        />
-      </RadarChart>
-    </ResponsiveContainer>
-  );
+  const option = {
+    tooltip: { trigger: 'item' },
+    radar: {
+      indicator: [
+        { name: '价值', max: 100 },
+        { name: '质量', max: 100 },
+        { name: '动量', max: 100 },
+        { name: '情绪', max: 100 },
+      ],
+      axisName: { color: '#ddd' },
+      splitLine: { lineStyle: { opacity: 0.4 } },
+      splitArea: { areaStyle: { opacity: 0.04 } },
+    },
+    series: [
+      { type: 'radar', data: [{ value: vals }], areaStyle: { opacity: 0.3 } }
+    ],
+    darkMode: true,
+  };
+
+  return <ReactECharts style={{ height: 250 }} option={option} />;
 }
