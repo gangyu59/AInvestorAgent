@@ -310,7 +310,12 @@ export default function HomePage() {
                     {(scores || []).map(it => (
                       <div className="row" key={it.symbol}>
                         <span>{it.symbol}</span>
-                        <span className={`score ${it.score >= 85 ? "good" : it.score >= 70 ? "mid" : "bad"}`}>{it.score}</span>
+                        {(() => {
+                          const s = (it as any)?.score?.score ?? (typeof (it as any).score === "number" ? (it as any).score : 0);
+                          return (
+                            <span className={`score ${s >= 85 ? "good" : s >= 70 ? "mid" : "bad"}`}>{Number.isFinite(s) ? s : "--"}</span>
+                          );
+                        })()}
                         <span className="radar" />
                         <span>{(it as any).as_of || "--"}</span>
                         <span><a href="/#/portfolio" className="btn tiny">加入组合</a></span>

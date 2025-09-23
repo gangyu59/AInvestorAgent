@@ -490,3 +490,28 @@ export async function decideNow(body: { symbols: string[]; params?: any }): Prom
   return normalizeDecide(j);
 }
 
+// frontend/src/services/endpoints.ts
+
+// 基础查询
+export const PRICES = (symbol: string, days = 180) =>
+  `/api/prices/series?symbol=${encodeURIComponent(symbol)}&days=${days}`;
+
+export const FUNDAMENTALS = (symbol: string) =>
+  `/api/fundamentals/${encodeURIComponent(symbol)}`;
+
+export const METRICS = (symbol: string) =>
+  `/api/metrics/${encodeURIComponent(symbol)}`;
+
+export const ANALYZE = (symbol: string) =>
+  `/api/analyze/${encodeURIComponent(symbol)}`; // 你已有 analyze 路由（见文件树）
+
+// 批量评分（本次冲刺B）
+export const SCORE_BATCH = `/api/scores/batch`;
+
+// 组合 & 回测
+export const PORTFOLIO_PROPOSE = `/api/portfolio/propose`;
+export const BACKTEST_RUN = `/api/backtest/run`;
+
+// 为了兼容你历史命名，导出 ORCH_* 到对应真实接口（不改其它文件）
+export const ORCH_PROPOSE = PORTFOLIO_PROPOSE;
+export const ORCH_PROPOSE_BACKTEST = BACKTEST_RUN;

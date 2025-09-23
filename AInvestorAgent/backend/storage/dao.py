@@ -74,3 +74,54 @@ def runs_last_week(db: Session, job: str) -> int:
         and_(RunHistory.job == job, RunHistory.ts >= since)
     )
     return int(db.execute(stmt).scalar() or 0)
+
+
+# === 追加开始：ScoresDAO ===
+from typing import Optional, Dict, Any, List
+from sqlalchemy import select, and_
+from .db import SessionLocal
+from .models import ScoreDaily  # 你已有的 ORM 模型（scores_daily 表）
+
+class ScoresDAO:
+    @staticmethod
+    def upsert(item: Dict[str, Any]) -> None:
+        """
+        item: {
+          "symbol": str,
+          "factors": {"f_value":..., "f_quality":..., "f_momentum":..., "f_sentiment":..., "f_risk":...},
+          "score": {"value":int,"quality":int,"momentum":int,"sentiment":int,"score":int,"version_tag":str},
+          "updated_at": datetime
+        }
+        """
+        with SessionLocal() as s:
+            row = s.execute(
+                select(ScoreDaily).where(ScoreDaily.symbol == item["symbol"])
+            ).scalar_one_or_none()
+            if row is None:
+                row = ScoreDaily(symbol=item["symbol"])
+                s.add(row)
+            # 这里假设 ScoreDaily 有 JSON 列 factors/detail（或等价）
+            row.factors = item["factors"]
+            row.detail = item["score"]
+            row.updated_at = item["updated_at"]
+            s.commit()
+
+    @staticmethod
+    def get_last_success(symbol: str) -> Optional[Dict[str, Any]]:
+        with SessionLocal() as s:
+            row = (
+                s.execute(
+                    select(ScoreDaily)
+                    .where(ScoreDaily.symbol == symbol)
+                    .order_by(ScoreDaily.updated_at.desc())
+                ).scalar_one_or_none()
+            )
+            if not row:
+                return None
+            return {
+                "symbol": symbol,
+                "factors": row.factors,
+                "score": row.detail,
+                "updated_at": row.updated_at,
+            }
+
