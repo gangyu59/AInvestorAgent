@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   runBacktest,
   fetchPriceSeries,
@@ -14,6 +14,7 @@ export default function SimulatorPage() {
   const [bt, setBt] = useState<BacktestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const chartRef = useRef<HTMLDivElement | null>(null);
 
   async function run() {
     setLoading(true);
@@ -46,38 +47,129 @@ export default function SimulatorPage() {
     }
   }
 
+  function exportCSV() {
+    if (!bt) return;
+    const dates = bt.dates || [];
+    const nav = bt.nav || [];
+    const bn = bt.benchmark_nav || [];
+    const dd = (bt as any)?.drawdown ?? computeDrawdown(nav);
+
+    const rows = [["date", "nav", "benchmark_nav", "drawdown"],
+      ...dates.map((d, i) => [d, nav[i] ?? "", bn[i] ?? "", dd[i] ?? ""])
+    ];
+    const csv = rows.map(r => r.map(x => `"${String(x).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `backtest_${new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  async function exportPNG(): Promise<void> {
+    // 1) 安全获取容器和 svg
+    const root = chartRef.current;
+    if (!root) return;
+    const svg = root.querySelector('svg') as SVGSVGElement | null;
+    if (!svg) return;
+
+    // 2) SVG -> PNG
+    const xml = new XMLSerializer().serializeToString(svg);
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('SVG image load failed'));
+      img.src = url;
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = svg.clientWidth || 940;
+    canvas.height = svg.clientHeight || 260;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(img, 0, 0);
+    const png = canvas.toDataURL('image/png');
+
+    const a = document.createElement('a');
+    a.href = png;
+    a.download = 'equity_curve.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   useEffect(() => {
     void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <div className="page">
-      <div className="page-header" style={{ gap: 8 }}>
-        <h2>回测与模拟</h2>
-        <input
-          defaultValue={pool}
-          onBlur={(e) => setPool(e.currentTarget.value)}
-          style={{ minWidth: 340 }}
-        />
-        <button className="btn btn-primary" onClick={run} disabled={loading}>
-          {loading ? "回测中…" : "重新回测"}
-        </button>
-      </div>
-
-      {err && (
-        <div className="card" style={{ borderColor: "#ff6b6b" }}>
-          <div className="card-body">{err}</div>
+      <div className="page">
+        <div className="page-header" style={{gap: 8}}>
+          <h2>回测与模拟</h2>
+          <input
+              defaultValue={pool}
+              onBlur={(e) => setPool(e.currentTarget.value)}
+              style={{minWidth: 340}}
+          />
+          <button className="btn btn-primary" onClick={run} disabled={loading}>
+            {loading ? "回测中…" : "重新回测"}
+          </button>
+          <button className="btn" onClick={exportPNG} disabled={!bt}>导出 PNG</button>
+          <button className="btn" onClick={exportCSV} disabled={!bt}>导出 CSV</button>
         </div>
-      )}
 
-      <div className="card">
-        <div className="card-header">
+        {err && (
+            <div className="card" style={{borderColor: "#ff6b6b"}}>
+              <div className="card-body">{err}</div>
+            </div>
+        )}
+
+        <div className="card">
+          <div className="card-header">
           <h3>NAV vs Benchmark</h3>
+          {bt && (
+            <div className="hint" style={{opacity: 0.75}}>
+              window={(bt as any)?.params?.window ?? "-"} ·
+              cost={(bt as any)?.params?.cost ?? "-"} ·
+              rebalance={(bt as any)?.params?.rebalance ?? "-"} ·
+              ver={(bt as any)?.version_tag ?? "-"}
+              </div>
+            )}
+          </div>
+          <div ref={chartRef}>
+          {bt ? <NavChart bt={bt}/> : <div className="card-body">无数据</div>}
+          </div>
         </div>
-        {bt ? <NavChart bt={bt} /> : <div className="card-body">无数据</div>}
+
+        {/* 回撤图 */}
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="card-header"><h3>回撤</h3></div>
+          {bt ? (
+            <DrawdownChart
+              dates={bt.dates || []}
+              dd={(bt as any)?.drawdown ?? computeDrawdown(bt.nav || [])}
+            />
+          ) : (
+            <div className="card-body">无数据</div>
+          )}
+        </div>
+
+        {/* 指标面板 */}
+        {bt && (
+          <div className="card" style={{ marginTop: 12 }}>
+            <div className="card-header"><h3>指标</h3></div>
+            <div className="card-body" style={{ display: "flex", gap: 16 }}>
+              <MetricCard label="年化" value={fmtPct(bt.metrics?.ann_return)} />
+              <MetricCard label="Sharpe" value={fmtNum(bt.metrics?.sharpe, 2)} />
+              <MetricCard label="最大回撤" value={fmtPct((bt as any)?.metrics?.max_dd ?? bt.metrics?.mdd)} />
+              <MetricCard label="胜率" value={fmtPct((bt as any)?.metrics?.win_rate)} />
+            </div>
+          </div>
+        )}
+
       </div>
-    </div>
   );
 }
 
@@ -88,10 +180,10 @@ export default function SimulatorPage() {
 -------------------------------- */
 
 async function localEqualWeightBacktest(
-  symbols: string[]
+    symbols: string[]
 ): Promise<BacktestResponse> {
   if (!symbols.length) {
-    return { nav: [], benchmark_nav: [], dates: [], metrics: {} };
+    return {nav: [], benchmark_nav: [], dates: [], metrics: {}};
   }
 
   // 取最近 520 个交易日，足够覆盖 1 年+
@@ -99,14 +191,14 @@ async function localEqualWeightBacktest(
 
   // 拉取每只股票的价格
   const series = await Promise.all(
-    symbols.map((s) => fetchPriceSeries(s, { limit }))
+      symbols.map((s) => fetchPriceSeries(s, {limit}))
   );
 
   // 过滤掉无数据的股票
   const valid: { sym: string; arr: PricePoint[] }[] = [];
   for (let i = 0; i < symbols.length; i++) {
     const arr = series[i] || [];
-    if (arr.length >= 60) valid.push({ sym: symbols[i], arr });
+    if (arr.length >= 60) valid.push({sym: symbols[i], arr });
   }
   if (!valid.length) return { nav: [], benchmark_nav: [], dates: [], metrics: {} };
 
@@ -265,3 +357,44 @@ function NavChart({ bt }: { bt: BacktestResponse }) {
 function fmtPct(p?: number) {
   return p == null ? "-" : (p * 100).toFixed(1) + "%";
 }
+
+function computeDrawdown(nav: number[]): number[] {
+  const dd: number[] = [];
+  let peak = -Infinity;
+  for (const v of nav || []) {
+    if (typeof v !== "number") { dd.push(0); continue; }
+    peak = Math.max(peak, v);
+    dd.push(peak > 0 ? v / peak - 1 : 0);  // 0, -0.01, ...
+  }
+  return dd;
+}
+
+function DrawdownChart({ dates, dd }: { dates: string[]; dd: number[] }) {
+  const W = 940, H = 180, P = 24;
+  const n = dd.length;
+  if (!n) return <div className="card-body">无数据</div>;
+  const min = Math.min(...dd), max = Math.max(...dd);
+  const rng = (max - min) || 1;
+  const x = (i: number) => P + ((W - 2 * P) * i) / ((n - 1) || 1);
+  const y = (v: number) => P + (H - 2 * P) * (1 - (v - min) / rng);
+  // 面积路径（以 0 为闭合）
+  let d = `M ${x(0)} ${y(0)} `;
+  dd.forEach((v, i) => { d += `L ${x(i)} ${y(v)} `; });
+  d += `L ${x(n - 1)} ${y(0)} Z`;
+  return (
+    <svg width={W} height={H} style={{ display: "block" }}>
+      <path d={d} fill="currentColor" fillOpacity={0.15} stroke="none" />
+      <path d={dd.reduce((p,v,i)=>p+`${p?"L":"M"} ${x(i)} ${y(v)} `,"")} fill="none" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="card" style={{ padding: 12, minWidth: 140 }}>
+      <div style={{ opacity: 0.7 }}>{label}</div>
+      <div style={{ fontSize: 20 }}>{value}</div>
+    </div>
+  );
+}
+const fmtNum = (x?: number, d = 2) => (x == null ? "-" : Number.isFinite(x) ? x.toFixed(d) : "-");

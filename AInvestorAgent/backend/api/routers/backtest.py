@@ -44,8 +44,39 @@ def run_backtest(req: RunBacktestReq):
         }
         res = agent.run(data)
         if not res.get("ok"):
-            raise HTTPException(status_code=400, detail=res.get("error","backtest failed"))
-        return {"success": True, **res}
+            raise HTTPException(status_code=400, detail=res.get("error", "backtest failed"))
+
+        # -------- 统一输出结构（最小侵入式补齐）--------
+        dates = res.get("dates") or res.get("timeline") or []
+        nav = res.get("nav") or res.get("portfolio_nav") or []
+        benchmark_nav = res.get("benchmark_nav") or res.get("bench") or []
+
+        # 计算回撤与指标（若引擎已给同名字段，将以引擎结果为准，否则补齐）
+        from ...backtest.metrics import compute_drawdown, compute_metrics
+        drawdown = res.get("drawdown") or compute_drawdown(nav)
+        metrics = res.get("metrics") or compute_metrics(nav, dates)
+
+        payload = {
+            "dates": dates,
+            "nav": nav,
+            "benchmark_nav": benchmark_nav,
+            "drawdown": drawdown,
+            "metrics": {
+                "ann_return": float(metrics.get("ann_return", 0.0)),
+                "sharpe": float(metrics.get("sharpe", 0.0)),
+                "max_dd": float(metrics.get("max_dd", metrics.get("mdd", 0.0))),  # 兼容 mdd
+                "win_rate": float(metrics.get("win_rate", 0.0)),
+            },
+            "params": {
+                "window": f"{res.get('window_days') or 252}D",
+                "cost": res.get("trading_cost", 0.001),
+                "rebalance": res.get("rebalance", "W"),
+                "max_trades_per_week": res.get("max_trades_per_week", 3),
+            },
+            "version_tag": res.get("version_tag", "bt_v1.0.0"),
+        }
+
+        return {"success": True, **payload}
     except HTTPException:
         raise
     except Exception as e:
