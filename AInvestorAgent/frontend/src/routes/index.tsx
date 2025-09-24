@@ -27,7 +27,17 @@ const fmt = (x: any, d = 2): string =>
 const pct = (x: any, d = 1): string =>
   x == null || !Number.isFinite(+x) ? "--" : `${(+x * 100).toFixed(d)}%`;
 
+// 统一指标字段（兼容 ann_return/max_dd/win_rate 等大小写差异）
+type AnyMetrics = Record<string, any> | null | undefined;
+const normMetrics = (m: AnyMetrics) => ({
+  ann_return: m?.ann_return ?? m?.annReturn ?? null,
+  sharpe:     m?.sharpe     ?? m?.Sharpe     ?? null,
+  mdd:        m?.mdd        ?? m?.max_dd     ?? m?.maxDD ?? null,
+  winrate:    m?.winrate    ?? m?.win_rate   ?? m?.winRate ?? null,
+});
+
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || "";
 
 export default function HomePage() {
   const [symbols, setSymbols] = useState<string[]>(DEFAULT_SYMBOLS);
@@ -46,35 +56,36 @@ export default function HomePage() {
       try {
         setError(null);
 
-        // 并发启动三请求
-        const p1: Promise<SnapshotBrief | null> = fetchLastSnapshot().catch(() => null);
-        const p2: Promise<SentimentBrief | null> = fetchSentimentBrief(symbols).catch(() => null);
-        const p3: Promise<ScoreItem[]> = scoreBatch(symbols).catch(() => []);
+        // 先启动 Promise（并发开始），再分别 await（不会串行阻塞）
+        const p1 = fetchLastSnapshot().catch(() => null) as Promise<SnapshotBrief | null>;
+        const p2 = fetchSentimentBrief(symbols).catch(() => null) as Promise<SentimentBrief | null>;
+        const p3 = scoreBatch(symbols).catch(() => []) as Promise<ScoreItem[]>;
 
-        const snap = await p1;
-        const brief = await p2;
-        const scoring = await p3;
-        if (!cancelled) {
-          if (snap) setSnapshot(snap);
-          if (brief) setSentiment(brief);
-          setScores(scoring || []);
-        }
+        const snap    = await p1;                      // SnapshotBrief | null
+        const brief   = await p2;                      // SentimentBrief | null
+        const scoring = await p3;                      // ScoreItem[]
+
+        if (cancelled) return;
+
+        if (snap)  setSnapshot(snap);
+        if (brief) setSentiment(brief);
+        setScores(scoring);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "加载失败");
+        if (!cancelled) setError(e?.message ?? "加载失败");
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
   // 取 top5 权重（来自最新 decide 或 snapshot）
-  const keptTop5 = useMemo(() => {
+  const keptTop5 = useMemo<[string, number][]>(() => {
     const weights: Record<string, number> =
-      (decide?.context?.weights as Record<string, number> | undefined) ||
-      (snapshot?.weights as Record<string, number> | undefined) ||
-      {};
+      (snapshot?.weights as Record<string, number> | undefined) || {};
     return Object.entries(weights).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [decide, snapshot]);
+  }, [snapshot]);
+
 
   async function onDecide() {
     setLoading(true);
@@ -97,6 +108,66 @@ export default function HomePage() {
       setError(e?.message || "Decide 调用失败");
     } finally {
       setLoading(false);
+    }
+  }
+
+    // ====== 回测：点击“Run Backtest” ======
+  async function onRunBacktest() {
+    setLoading(true);
+    setError(null);
+    try {
+      // 从最新权重或使用等权（避免空白）
+      const weights: Record<string, number> =
+        (decide?.context?.weights as Record<string, number> | undefined) ||
+        (snapshot?.weights as Record<string, number> | undefined) ||
+        Object.fromEntries(symbols.map(s => [s, 1 / symbols.length]));
+
+      // 优先用你 services/endpoints 里的 runBacktest（若无则直接 fetch）
+      let bt: any;
+      if (typeof runBacktest === "function") {
+        // 你的 runBacktest 可能是基于 symbols 调用；这里统一按 1 年、周频
+        bt = await runBacktest({ symbols: Object.keys(weights), rebalance: "weekly", weeks: 52 });
+      } else {
+        const r = await fetch(`${API_BASE}/backtest/run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // 注意：你的后端需要 kept 或 weights，这里传 weights
+          body: JSON.stringify({
+            weights: Object.entries(weights).map(([symbol, weight]) => ({ symbol, weight })),
+          }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        bt = await r.json();
+      }
+
+      setBacktest(bt);
+      const bid = bt?.backtest_id;
+      if (bid) {
+        window.location.hash = `#/simulator?bid=${encodeURIComponent(bid)}`;
+      } else {
+        window.location.hash = "#/simulator";
+      }
+    } catch (e: any) {
+      setError(e?.message || "Backtest 调用失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ====== 个股分析：点击“运行 /api/analyze” ======
+  async function onAnalyzeClick() {
+    try {
+      // 输入框 id 与你当前 JSX 一致（见下方）
+      const el = document.querySelector<HTMLInputElement>("#analyzeSym");
+      const sym = (el?.value || "AAPL").trim().toUpperCase();
+      // ✅ IMPORTANT：analyzeEndpoint 应只返回 path，这里再拼 base
+      const url = `${API_BASE}${analyzeEndpoint(sym)}`;
+      const r = await fetch(url, { method: "GET" }); // 如果你的后端是 POST，请改为 {method:"POST"}
+      if (!r.ok) throw new Error(await r.text());
+      // 成功后跳到个股页查看完整图表
+      window.location.hash = `#/stock?query=${encodeURIComponent(sym)}`;
+    } catch (e: any) {
+      alert("Analyze 失败：" + (e?.message || ""));
     }
   }
 

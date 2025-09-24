@@ -36,8 +36,12 @@ export async function scoreBatch(symbols: string[]): Promise<ScoreItem[]> {
 }
 
 // ✅ 新增一个“分析接口”的工具函数，沿用你已有的 API 基础URL
+// export const analyzeEndpoint = (symbol: string) =>
+//   `${API}/api/analyze/${encodeURIComponent(symbol)}`;
+
+// ✅ 正确：只返回 path，不带 base
 export const analyzeEndpoint = (symbol: string) =>
-  `${API}/api/analyze/${encodeURIComponent(symbol)}`;
+  `/api/analyze/${encodeURIComponent(symbol)}`;
 
 
 // ====== Price Series ======
