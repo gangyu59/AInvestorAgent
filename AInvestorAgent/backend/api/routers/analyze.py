@@ -145,3 +145,103 @@ def analyze_symbol(
         score=score,
         sentiment_timeline=sentiment_timeline,
     )
+
+
+# -----------------------------------------------------------------------------------
+# 生成 Markdown 报告（最小可用版）
+# 路由：POST /api/report/generate
+# 行为：
+#   - 读取最近一次组合快照（若模型/表不存在则降级为空组合）
+#   - 汇总持仓权重与 Top2 理由（若有）
+#   - 统计每只持仓近 N 天的新闻情绪均值与数量（如果有 NewsRaw/NewsScore）
+# 返回：{ ok, format:"markdown", content, snapshot_id? }
+# -----------------------------------------------------------------------------------
+from fastapi import HTTPException
+
+@router.post("/report/generate")
+def generate_report(days: int = 7, db: Session = Depends(get_db)):
+    # 1) 读取最近快照（兼容不同模型字段；模型不存在时优雅降级）
+    holdings = []
+    snapshot_id = None
+    try:
+        Snap = getattr(models, "PortfolioSnapshot", None)  # 你项目里的快照模型，如不存在则为 None
+        if Snap is not None:
+            q = db.query(Snap)
+            if hasattr(Snap, "created_at"):
+                q = q.order_by(Snap.created_at.desc())
+            elif hasattr(Snap, "as_of"):
+                q = q.order_by(Snap.as_of.desc())
+            elif hasattr(Snap, "id"):
+                q = q.order_by(Snap.id.desc())
+            snap = q.first()
+            if snap:
+                snapshot_id = getattr(snap, "snapshot_id", None) or getattr(snap, "id", None)
+                payload = getattr(snap, "payload", None)
+                if isinstance(payload, str):
+                    try:
+                        payload = json.loads(payload)
+                    except Exception:
+                        payload = {}
+                if isinstance(payload, dict):
+                    holdings = payload.get("holdings", []) or []
+    except Exception:
+        # 快照表不存在/结构不同 → 降级为空组合
+        pass
+
+    symbols = [h.get("symbol") for h in holdings if h.get("symbol")] if holdings else []
+
+    # 2) 情绪摘要（近 N 天）：沿用你文件中使用的 NewsRaw/NewsScore 表（同一 models 命名空间）
+    senti_lines = []
+    if symbols:
+        try:
+            since = datetime.utcnow() - timedelta(days=days)
+            dt_date = func.date(models.NewsRaw.published_at)  # 你的 analyze.py 里已有同表使用方式
+            for s in symbols:
+                stmt = (
+                    select(
+                        func.avg(models.NewsScore.sentiment).label("avg_sent"),
+                        func.count(models.NewsScore.id).label("n"),
+                    )
+                    .join(models.NewsScore, models.NewsScore.news_id == models.NewsRaw.id)
+                    .where(models.NewsRaw.symbol == s.upper(), models.NewsRaw.published_at >= since)
+                )
+                r = db.execute(stmt).first()
+                avg_val = float(r[0]) if r and r[0] is not None else None
+                n_val = int(r[1]) if r and r[1] is not None else 0
+                if avg_val is None:
+                    senti_lines.append(f"- {s}: 近{days}天收录 {n_val} 条新闻（无有效情绪分数）")
+                else:
+                    senti_lines.append(f"- {s}: 近{days}天情绪均值 {avg_val:+.2f}（{n_val} 条）")
+        except Exception:
+            # 情绪表缺失也不阻塞报告生成
+            pass
+
+    # 3) 组装 Markdown
+    today = date.today().isoformat()
+    md = []
+    md.append(f"# Daily Portfolio Report\n")
+    md.append(f"- Date: **{today}**")
+    if snapshot_id:
+        md.append(f"- Snapshot ID: `{snapshot_id}`")
+    md.append("")
+
+    if holdings:
+        md.append("## Current Portfolio")
+        for h in holdings:
+            sym = h.get("symbol")
+            w = h.get("weight", 0)
+            rs = h.get("reasons") or []
+            line = f"- **{sym}**  weight: **{w:.2%}**"
+            if rs:
+                line += f"  — reasons: {', '.join(map(str, rs[:2]))}"
+            md.append(line)
+    else:
+        md.append("_No saved portfolio snapshot. Generate one via **Decide Now**._")
+
+    if senti_lines:
+        md.append("")
+        md.append(f"## Sentiment (last {days} days)")
+        md.extend(senti_lines)
+
+    md_txt = "\n".join(md) + "\n"
+    return {"ok": True, "format": "markdown", "content": md_txt, "snapshot_id": snapshot_id}

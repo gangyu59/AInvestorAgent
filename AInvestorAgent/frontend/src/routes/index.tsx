@@ -175,6 +175,33 @@ export default function HomePage() {
   }
 
 
+  async function onGenerateReport() {
+    try {
+      const base = (import.meta as any).env?.VITE_API_BASE || "";
+      const r = await fetch(`${base}/api/report/generate`, { method: "POST" });
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      const md = data?.content || "";
+      if (!md) {
+        alert("报告为空（可能尚未有组合快照）");
+        return;
+      }
+      // 直接下载 Markdown
+      const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const d = new Date().toISOString().slice(0, 10);
+      a.download = `report_${d}.md`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert("Generate Report 失败：" + (e?.message || ""));
+    }
+  }
+
   // ====== 个股分析：点击“运行 /api/analyze” ======
   async function onAnalyzeClick() {
     try {
@@ -241,19 +268,7 @@ export default function HomePage() {
             <button className="btn" onClick={onRunBacktest} disabled={loading}>
               Run Backtest
             </button>
-            <button
-                className="btn"
-                onClick={async () => {
-                  try {
-                    const base = (import.meta as any).env?.VITE_API_BASE || "";
-                    const r = await fetch(`${base}/api/report/generate`, {method: "POST"});
-                    if (!r.ok) throw new Error(String(r.status));
-                    alert("已触发报告生成");
-                  } catch {
-                    alert("报告接口未就绪：请稍后再试");
-                  }
-                }}
-            >
+            <button className="btn" onClick={onGenerateReport}>
               Generate Report
             </button>
           </div>
