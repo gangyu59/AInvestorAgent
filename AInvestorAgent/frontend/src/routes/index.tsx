@@ -91,47 +91,64 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await decideNow({ symbols });
-      setDecide(res); // 先更新权重/订单/kept —— 页面立刻有变化
-
-      const ctx: any = res?.context ?? {};
-      const bt = ctx["backtest"];
-      if (bt) {
-        setBacktest(bt);
+      // 优先用你 endpoints.ts 里的 decideNow；没有的话走直连 fetch
+      let res: any;
+      if (typeof decideNow === "function") {
+        res = await decideNow({ symbols });
       } else {
-        const w: Record<string, number> = (ctx["weights"] ?? {}) as Record<string, number>;
-        runBacktest({ symbols: Object.keys(w), rebalance: "weekly", weeks: 52 })
-          .then(setBacktest)
-          .catch(() => {});
+        const base = (import.meta as any).env?.VITE_API_BASE || "";
+        const r = await fetch(`${base}/api/portfolio/propose`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        res = await r.json();
+      }
+
+      setDecide(res);
+
+      // ✅ 关键：跳转到组合页
+      const sid = res?.snapshot_id ?? res?.context?.snapshot_id;
+      if (sid) {
+        window.location.hash = `#/portfolio?sid=${encodeURIComponent(sid)}`;
+      } else {
+        window.location.hash = "#/portfolio";
       }
     } catch (e: any) {
       setError(e?.message || "Decide 调用失败");
+      alert("Decide 失败：" + (e?.message || ""));
     } finally {
       setLoading(false);
     }
   }
+
 
     // ====== 回测：点击“Run Backtest” ======
   async function onRunBacktest() {
     setLoading(true);
     setError(null);
     try {
-      // 从最新权重或使用等权（避免空白）
+      // 取最新权重；没有快照就用等权
       const weights: Record<string, number> =
         (decide?.context?.weights as Record<string, number> | undefined) ||
         (snapshot?.weights as Record<string, number> | undefined) ||
         Object.fromEntries(symbols.map(s => [s, 1 / symbols.length]));
 
-      // 优先用你 services/endpoints 里的 runBacktest（若无则直接 fetch）
       let bt: any;
       if (typeof runBacktest === "function") {
-        // 你的 runBacktest 可能是基于 symbols 调用；这里统一按 1 年、周频
-        bt = await runBacktest({ symbols: Object.keys(weights), rebalance: "weekly", weeks: 52 });
+        // 你的 runBacktest 是按 symbols 触发回测；这里给 1 年周频
+        bt = await runBacktest({
+          symbols: Object.keys(weights),
+          rebalance: "weekly",
+          weeks: 52,
+        });
       } else {
-        const r = await fetch(`${API_BASE}/backtest/run`, {
+        const base = (import.meta as any).env?.VITE_API_BASE || "";
+        const r = await fetch(`${base}/backtest/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // 注意：你的后端需要 kept 或 weights，这里传 weights
+          // ✅ 你的后端要求字段名是 weights（不是 holdings）
           body: JSON.stringify({
             weights: Object.entries(weights).map(([symbol, weight]) => ({ symbol, weight })),
           }),
@@ -141,6 +158,8 @@ export default function HomePage() {
       }
 
       setBacktest(bt);
+
+      // ✅ 关键：跳转到模拟页
       const bid = bt?.backtest_id;
       if (bid) {
         window.location.hash = `#/simulator?bid=${encodeURIComponent(bid)}`;
@@ -149,10 +168,12 @@ export default function HomePage() {
       }
     } catch (e: any) {
       setError(e?.message || "Backtest 调用失败");
+      alert("Backtest 失败：" + (e?.message || ""));
     } finally {
       setLoading(false);
     }
   }
+
 
   // ====== 个股分析：点击“运行 /api/analyze” ======
   async function onAnalyzeClick() {
@@ -192,22 +213,22 @@ export default function HomePage() {
         <div className="actions">
           <div className="search">
             <input
-              type="text"
-              placeholder="搜索代码或名称（AAPL / TSLA / NVDA）"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const v = (e.target as HTMLInputElement).value.trim();
-                  if (v) window.location.hash = `#/stock?query=${encodeURIComponent(v)}`;
-                }
-              }}
+                type="text"
+                placeholder="搜索代码或名称（AAPL / TSLA / NVDA）"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const v = (e.target as HTMLInputElement).value.trim();
+                    if (v) window.location.hash = `#/stock?query=${encodeURIComponent(v)}`;
+                  }
+                }}
             />
             <button
-              className="btn btn-secondary"
-              onClick={() => {
-                const el = document.querySelector<HTMLInputElement>(".topbar .search input");
-                const v = el?.value.trim();
-                if (v) window.location.hash = `#/stock?query=${encodeURIComponent(v)}`;
-              }}
+                className="btn btn-secondary"
+                onClick={() => {
+                  const el = document.querySelector<HTMLInputElement>(".topbar .search input");
+                  const v = el?.value.trim();
+                  if (v) window.location.hash = `#/stock?query=${encodeURIComponent(v)}`;
+                }}
             >
               搜索
             </button>
@@ -217,33 +238,21 @@ export default function HomePage() {
             <button className="btn btn-primary" onClick={onDecide} disabled={loading}>
               {loading ? "Deciding..." : "Decide Now"}
             </button>
-            <button
-              className="btn"
-              onClick={async () => {
-                setLoading(true);
-                try {
-                  const bt = await runBacktest({ symbols, rebalance: "weekly", weeks: 52 });
-                  setBacktest(bt);
-                } finally {
-                  setLoading(false);
-                }
-              }}
-              disabled={loading}
-            >
+            <button className="btn" onClick={onRunBacktest} disabled={loading}>
               Run Backtest
             </button>
             <button
-              className="btn"
-              onClick={async () => {
-                try {
-                  const base = (import.meta as any).env?.VITE_API_BASE || "";
-                  const r = await fetch(`${base}/api/report/generate`, { method: "POST" });
-                  if (!r.ok) throw new Error(String(r.status));
-                  alert("已触发报告生成");
-                } catch {
-                  alert("报告接口未就绪：请稍后在 Manage 页面开启或进入 /#/report 查看历史");
-                }
-              }}
+                className="btn"
+                onClick={async () => {
+                  try {
+                    const base = (import.meta as any).env?.VITE_API_BASE || "";
+                    const r = await fetch(`${base}/api/report/generate`, {method: "POST"});
+                    if (!r.ok) throw new Error(String(r.status));
+                    alert("已触发报告生成");
+                  } catch {
+                    alert("报告接口未就绪：请稍后再试");
+                  }
+                }}
             >
               Generate Report
             </button>
@@ -272,10 +281,10 @@ export default function HomePage() {
         {/* 内容 */}
         <main className="content">
           {errorMsg && (
-            <div className="card" style={{ borderColor: "#ff6b6b", marginBottom: 12 }}>
-              <div className="card-header"><h3>错误</h3></div>
-              <div className="card-body">{String(errorMsg)}</div>
-            </div>
+              <div className="card" style={{borderColor: "#ff6b6b", marginBottom: 12}}>
+                <div className="card-header"><h3>错误</h3></div>
+                <div className="card-body">{String(errorMsg)}</div>
+              </div>
           )}
 
           {/* === Hero：三卡 === */}
