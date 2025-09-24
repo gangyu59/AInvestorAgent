@@ -48,25 +48,54 @@ export default function HomePage() {
   const [snapshot, setSnapshot] = useState<SnapshotBrief | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setError] = useState<string | null>(null);
+  const [analyzeMsg, setAnalyzeMsg] = useState<string>("");
 
-  // 首次加载：快照 / 情绪 / 批量评分
+  // ===== 工具：统一向后端发起回测（/backtest/run），并缓存“最近一次回测” =====
+  async function postBacktest(weightsObj: Record<string, number>) {
+    const base = (import.meta as any).env?.VITE_API_BASE || "";
+    const weights = Object.entries(weightsObj).map(([symbol, weight]) => ({
+      symbol,
+      weight: Number(weight),
+    }));
+    if (weights.length === 0) throw new Error("没有可用权重，无法回测");
+
+    const payload = {
+      weights,            // ✅ 后端要求：[{symbol, weight}]
+      window_days: 180,   // 轻量回测窗口
+      trading_cost: 0,
+      mock: true,         // 保证演示稳定；要真实回测可去掉
+    };
+
+    const r = await fetch(`${base}/backtest/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const bt = await r.json();
+
+    setBacktest(bt);
+    try { localStorage.setItem("lastBacktest", JSON.stringify(bt)); } catch {}
+    return bt;
+  }
+
+  // ===== 首次加载：快照 / 情绪 / 批量评分 =====
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         setError(null);
 
-        // 先启动 Promise（并发开始），再分别 await（不会串行阻塞）
+        // 并发请求
         const p1 = fetchLastSnapshot().catch(() => null) as Promise<SnapshotBrief | null>;
         const p2 = fetchSentimentBrief(symbols).catch(() => null) as Promise<SentimentBrief | null>;
         const p3 = scoreBatch(symbols).catch(() => []) as Promise<ScoreItem[]>;
 
-        const snap    = await p1;                      // SnapshotBrief | null
-        const brief   = await p2;                      // SentimentBrief | null
-        const scoring = await p3;                      // ScoreItem[]
+        const snap    = await p1;
+        const brief   = await p2;
+        const scoring = await p3;
 
         if (cancelled) return;
-
         if (snap)  setSnapshot(snap);
         if (brief) setSentiment(brief);
         setScores(scoring);
@@ -78,6 +107,30 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ===== 首屏回读“最近一次回测”缓存（来自任意页面的回测）=====
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem("lastBacktest");
+      if (s && !backtest) setBacktest(JSON.parse(s));
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ===== 有快照且本页还没有回测结果时，触发一次轻量回测（可见即可用）=====
+  useEffect(() => {
+    if (!snapshot || backtest) return;
+    const weights = snapshot.weights || {};
+    if (Object.keys(weights).length === 0) return;
+
+    (async () => {
+      try {
+        await postBacktest(weights);
+      } catch {
+        // 静默失败，保持空态
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot]);
 
   // 取 top5 权重（来自最新 decide 或 snapshot）
   const keptTop5 = useMemo<[string, number][]>(() => {
@@ -86,12 +139,16 @@ export default function HomePage() {
     return Object.entries(weights).sort((a, b) => b[1] - a[1]).slice(0, 5);
   }, [snapshot]);
 
+  const btM = useMemo(() => {
+    const m = backtest?.metrics ?? (backtest as any)?.result?.metrics ?? null;
+    return normMetrics(m);
+  }, [backtest]);
 
+  // ====== 一键组合：Decide Now ======
   async function onDecide() {
     setLoading(true);
     setError(null);
     try {
-      // 优先用你 endpoints.ts 里的 decideNow；没有的话走直连 fetch
       let res: any;
       if (typeof decideNow === "function") {
         res = await decideNow({ symbols });
@@ -108,7 +165,7 @@ export default function HomePage() {
 
       setDecide(res);
 
-      // ✅ 关键：跳转到组合页
+      // 跳组合页
       const sid = res?.snapshot_id ?? res?.context?.snapshot_id;
       if (sid) {
         window.location.hash = `#/portfolio?sid=${encodeURIComponent(sid)}`;
@@ -123,44 +180,21 @@ export default function HomePage() {
     }
   }
 
-
-    // ====== 回测：点击“Run Backtest” ======
+  // ====== 回测：点击“Run Backtest” ======
   async function onRunBacktest() {
     setLoading(true);
     setError(null);
     try {
-      // 取最新权重；没有快照就用等权
-      const weights: Record<string, number> =
+      // 取最新权重；没有快照/结果就用等权（不发 symbols/weeks 了）
+      const weightsObj: Record<string, number> =
         (decide?.context?.weights as Record<string, number> | undefined) ||
         (snapshot?.weights as Record<string, number> | undefined) ||
-        Object.fromEntries(symbols.map(s => [s, 1 / symbols.length]));
+        Object.fromEntries(symbols.map(s => [s, 1 / Math.max(symbols.length, 1)]));
 
-      let bt: any;
-      if (typeof runBacktest === "function") {
-        // 你的 runBacktest 是按 symbols 触发回测；这里给 1 年周频
-        bt = await runBacktest({
-          symbols: Object.keys(weights),
-          rebalance: "weekly",
-          weeks: 52,
-        });
-      } else {
-        const base = (import.meta as any).env?.VITE_API_BASE || "";
-        const r = await fetch(`${base}/backtest/run`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          // ✅ 你的后端要求字段名是 weights（不是 holdings）
-          body: JSON.stringify({
-            weights: Object.entries(weights).map(([symbol, weight]) => ({ symbol, weight })),
-          }),
-        });
-        if (!r.ok) throw new Error(await r.text());
-        bt = await r.json();
-      }
+      const bt = await postBacktest(weightsObj);
 
-      setBacktest(bt);
-
-      // ✅ 关键：跳转到模拟页
-      const bid = bt?.backtest_id;
+      // 跳模拟页
+      const bid = (bt as any)?.backtest_id;
       if (bid) {
         window.location.hash = `#/simulator?bid=${encodeURIComponent(bid)}`;
       } else {
@@ -174,7 +208,7 @@ export default function HomePage() {
     }
   }
 
-
+  // ====== 报告：Generate Report ======
   async function onGenerateReport() {
     try {
       const base = (import.meta as any).env?.VITE_API_BASE || "";
@@ -186,7 +220,6 @@ export default function HomePage() {
         alert("报告为空（可能尚未有组合快照）");
         return;
       }
-      // 直接下载 Markdown
       const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -205,19 +238,18 @@ export default function HomePage() {
   // ====== 个股分析：点击“运行 /api/analyze” ======
   async function onAnalyzeClick() {
     try {
-      // 输入框 id 与你当前 JSX 一致（见下方）
       const el = document.querySelector<HTMLInputElement>("#analyzeSym");
       const sym = (el?.value || "AAPL").trim().toUpperCase();
-      // ✅ IMPORTANT：analyzeEndpoint 应只返回 path，这里再拼 base
+      setAnalyzeMsg(`正在分析 ${sym} …`);
       const url = `${API_BASE}${analyzeEndpoint(sym)}`;
-      const r = await fetch(url, { method: "GET" }); // 如果你的后端是 POST，请改为 {method:"POST"}
+      const r = await fetch(url, { method: "GET" });
       if (!r.ok) throw new Error(await r.text());
-      // 成功后跳到个股页查看完整图表
-      window.location.hash = `#/stock?query=${encodeURIComponent(sym)}`;
+      setAnalyzeMsg(`已触发 /api/analyze/${sym} 成功`); // ✅ 不跳页，只提示
     } catch (e: any) {
-      alert("Analyze 失败：" + (e?.message || ""));
+      setAnalyzeMsg(`Analyze 失败：${e?.message || ""}`);
     }
   }
+
 
   return (
     <>
@@ -330,7 +362,7 @@ export default function HomePage() {
                   <div className="kpi">
                     <div className="kpi-label">胜率</div>
                     <div className="kpi-value">
-                      {snapshot?.metrics?.winrate == null ? "--" : `${Math.round((snapshot!.metrics!.winrate as number) * 100)}%`}
+                      {btM.winrate == null ? "--" : `${Math.round((btM.winrate as number) * 100)}%`}
                     </div>
                   </div>
                 </div>
@@ -375,7 +407,7 @@ export default function HomePage() {
             <div className="card lg">
               <div className="card-header">
                 <h3>Sector Heatmap</h3>
-                <a href="/#/monitor" className="link">更多市场视图 →</a>
+                <a href="/#/monitor" className="link">查看舆情 →</a>
               </div>
               <div className="card-body heatmap">
                 <div className="cell up">Tech</div>
@@ -403,18 +435,44 @@ export default function HomePage() {
                   </div>
                   <div className="tbody">
                     {(scores || []).map(it => (
-                      <div className="row" key={it.symbol}>
-                        <span>{it.symbol}</span>
-                        {(() => {
-                          const s = (it as any)?.score?.score ?? (typeof (it as any).score === "number" ? (it as any).score : 0);
-                          return (
-                            <span className={`score ${s >= 85 ? "good" : s >= 70 ? "mid" : "bad"}`}>{Number.isFinite(s) ? s : "--"}</span>
-                          );
-                        })()}
-                        <span className="radar" />
-                        <span>{(it as any).as_of || "--"}</span>
-                        <span><a href="/#/portfolio" className="btn tiny">加入组合</a></span>
-                      </div>
+                        <div className="row" key={it.symbol}>
+                          <span>{it.symbol}</span>
+                          {(() => {
+                            const s = (it as any)?.score?.score ?? (typeof (it as any).score === "number" ? (it as any).score : 0);
+                            return (
+                                <span
+                                    className={`score ${s >= 85 ? "good" : s >= 70 ? "mid" : "bad"}`}>{Number.isFinite(s) ? s : "--"}</span>
+                            );
+                          })()}
+
+
+                          {(() => {
+                            const f = ((it as any)?.score?.factors) || {};                  // 因子值 0..1
+                            const order = ["value", "quality", "momentum", "growth", "news"];   // 固定顺序
+                            const vals = order.map(k => {
+                              const v = Number(f[k] ?? 0);
+                              return v < 0 ? 0 : v > 1 ? 1 : v;                              // clamp
+                            });
+                            const cx = 10, cy = 10, r = 8, n = order.length;
+                            const pts = vals.map((v, i) => {
+                              const a = -Math.PI / 2 + i * (2 * Math.PI / n);                     // 从正上开始
+                              const rr = r * v;
+                              const x = cx + rr * Math.cos(a);
+                              const y = cy + rr * Math.sin(a);
+                              return `${x},${y}`;
+                            }).join(" ");
+                            return (
+                                <svg width="20" height="20" className="mini-radar" aria-label="因子雷达">
+                                  <circle cx={cx} cy={cy} r={r} fill="none" stroke="#eee"/>
+                                  <polygon points={pts} fill="rgba(100,149,237,0.35)" stroke="#6495ED"
+                                           strokeWidth="0.8"/>
+                                </svg>
+                            );
+                          })()}
+
+                          <span>{(it as any).as_of || (it as any).updated_at || (it as any).version_tag || (it as any)?.score?.as_of || "--"}</span>
+                          <span><a href="/#/portfolio" className="btn tiny">加入组合</a></span>
+                        </div>
                     ))}
                   </div>
                 </div>
@@ -424,61 +482,87 @@ export default function HomePage() {
               <div className="card">
                 <div className="card-header">
                   <h3>News & Sentiment (7D)</h3>
+
+                  {(() => {
+                    const list = (sentiment?.latest_news ?? []);
+                    const avg = Math.round((list.reduce((s, n) => s + ((n as any)?.score ?? 0), 0) / Math.max(list.length, 1)) * 100) / 100;
+                    const barPct = (avg + 1) * 50;
+                    return (
+                        <div
+                            style={{
+                              display: 'inline-block', marginLeft: 8, verticalAlign: 'middle',
+                              width: 80, height: 6, borderRadius: 4, background: '#eee'
+                            }}
+                            title={`近${list.length}条，均值=${avg}`}
+                        >
+                          <div
+                              style={{
+                                height: '100%', width: `${barPct}%`, borderRadius: 4,
+                                background: avg >= 0 ? '#3CB371' : '#DC143C'
+                              }}/>
+                        </div>
+                    );
+                  })()}
+
                   <a href="/#/monitor" className="link">查看舆情 →</a>
+
                 </div>
                 <div className="card-body column">
-                  <div className="mini-chart line" aria-label="情绪时间轴（示意）" />
+                  {(() => {
+                    const list = (sentiment?.latest_news ?? []).slice(0, 30); // 取最近30条足够画迷你图
+                    if (list.length === 0) return <div className="mini-chart line" aria-label="情绪时间轴（空）"/>;
+
+                    const w = 180, h = 40, pad = 4;
+                    const xs = list.map((_, i) => pad + (w - 2 * pad) * (i / Math.max(list.length - 1, 1)));
+                    const ys = list.map(n => {
+                      const s = Math.max(-1, Math.min(1, (n as any)?.score ?? 0)); // clamp -1..1
+                      // 将 -1..+1 映射到 SVG 的 h-2*pad 高度，+1 在上、-1 在下
+                      return pad + (h - 2 * pad) * (1 - (s + 1) / 2);
+                    });
+                    const d = xs.map((x, i) => `${i ? 'L' : 'M'}${x},${ys[i]}`).join(' ');
+                    const last = (list[list.length - 1] as any)?.score ?? 0;
+                    const color = last >= 0 ? '#3CB371' : '#DC143C';
+
+                    return (
+                        <svg width={w} height={h} className="mini-chart" role="img" aria-label="情绪时间轴">
+                          <rect x="0" y="0" width={w} height={h} fill="none" stroke="#eee"/>
+                          <line x1="0" y1={h / 2} x2={w} y2={h / 2} stroke="#ddd"/>
+                          <path d={d} fill="none" stroke={color} strokeWidth="1.5"/>
+                          <circle cx={xs[xs.length - 1]} cy={ys[ys.length - 1]} r="2" fill={color}/>
+                        </svg>
+                    );
+                  })()}
+
                   <ul className="news-list">
                     {((sentiment?.latest_news || []).slice(0, 5)).map((n, i) => (
-                      <li key={i}>
-                        <a href={n.url} target="_blank" rel="noreferrer">{n.title}</a>
-                        <span className={`pill ${((n as any).score ?? 0) > 0 ? "up" : ((n as any).score ?? 0) < 0 ? "down" : "flat"}`}>
+                        <li key={i}>
+                          <a href={n.url} target="_blank" rel="noreferrer">{n.title}</a>
+                          <span
+                              className={`pill ${((n as any).score ?? 0) > 0 ? "up" : ((n as any).score ?? 0) < 0 ? "down" : "flat"}`}>
                           {fmt((n as any).score, 1)}
                         </span>
-                      </li>
+                        </li>
                     ))}
                   </ul>
                 </div>
               </div>
             </div>
 
-
-            <div className="card">
-              <div className="card-header">
-                <h3>Analyze Snapshot</h3>
-                <a href="/#/stock" className="link">到个股页 →</a>
-              </div>
-              <div className="card-body column">
-                <div className="row" style={{gap: 8}}>
-                  <input id="analyzeSym" defaultValue="AAPL"/>
-                  <button
-                      className="btn"
-                      onClick={async () => {
-                        try {
-                          const el = document.querySelector<HTMLInputElement>("#analyze-input"); // 假设你的输入框 id="analyze-input"
-                          const sym = (el?.value || "AAPL").trim().toUpperCase();
-                          const base = (import.meta as any).env?.VITE_API_BASE || "";
-                          const r = await fetch(`${base}${analyzeEndpoint(sym)}`); // e.g. /api/analyze/AAPL
-                          if (!r.ok) throw new Error(String(r.status));
-                          // 成功后直接跳到个股页查看完整图表
-                          window.location.hash = `#/stock?query=${encodeURIComponent(sym)}`;
-                        } catch (e: any) {
-                          alert("Analyze 失败：" + (e?.message || ""));
-                        }
-                      }}
-                  >
-                    运行 /api/analyze
-                  </button>
-                </div>
-                <div id="analyzeOut"
-                     style={{fontFamily: "ui-monospace,monospace", fontSize: 12, marginTop: 8, color: "#111"}}>（等待运行）
-                </div>
-              </div>
-            </div>
-
-
             <div className="stack">
-              {/* Risk */}
+              <div className="card">
+                <div className="card-header">
+                  <h3>Analyze Snapshot</h3>
+                  <a href="/#/stock" className="link">到个股页 →</a>
+                </div>
+                <div className="card-body column">
+                  <div className="row" style={{gap: 8}}>
+                    <input id="analyzeSym" defaultValue="AAPL"/>
+                    <button className="btn" onClick={onAnalyzeClick}>运行 /api/analyze</button>
+                    <div id="analyzeOut" className="muted small">{analyzeMsg}</div>
+                  </div>
+                </div>
+              </div>
+
               <div className="card">
                 <div className="card-header">
                   <h3>Risk & Constraints</h3>
@@ -487,7 +571,7 @@ export default function HomePage() {
                 <div className="card-body column">
                   <div className="rule">单票 ≤ <b>30%</b>，行业 ≤ <b>50%</b>，持仓 <b>5–15</b></div>
                   <div className="violations">
-                  <div className="vio ok">未发现超限</div>
+                    <div className="vio ok">未发现超限</div>
                   </div>
                 </div>
               </div>
@@ -499,25 +583,66 @@ export default function HomePage() {
                   <a href="/#/simulator" className="link">查看详情 →</a>
                 </div>
                 <div className="card-body row">
-                  <div className="mini-chart area" aria-label="净值 vs 基准（示意）" />
+                  {(() => {
+                    const navArr =
+                        (Array.isArray(backtest?.nav) ? backtest!.nav : undefined) ??
+                        (Array.isArray((backtest as any)?.equity_nav) ? (backtest as any).equity_nav : undefined) ??
+                        (Array.isArray((backtest as any)?.equity) ? (backtest as any).equity : undefined) ??
+                        (Array.isArray((backtest as any)?.result?.nav) ? (backtest as any).result.nav : undefined) ??
+                        [];
+
+                    const benchArr =
+                        (Array.isArray(backtest?.benchmark_nav) ? backtest!.benchmark_nav : undefined) ??
+                        (Array.isArray((backtest as any)?.benchmark) ? (backtest as any).benchmark : undefined) ??
+                        (Array.isArray((backtest as any)?.result?.benchmark_nav) ? (backtest as any).result.benchmark_nav : undefined) ??
+                        [];
+
+                    if (navArr.length < 2) {
+                      return (
+                          <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+                            <span style={{color: '#666'}}>暂无回测结果</span>
+                            <a href="/#/simulator" className="btn tiny">去运行回测</a>
+                          </div>
+                      );
+                    }
+                    const w = 180, h = 40, pad = 4;
+                    const max = Math.max(...navArr), min = Math.min(...navArr);
+                    const y = (v: number) => {
+                      const t = (v - min) / Math.max(max - min, 1e-6);
+                      return pad + (h - 2 * pad) * (1 - t);
+                    };
+                    const xs = navArr.map((_, i) => pad + (w - 2 * pad) * (i / (navArr.length - 1)));
+                    const d1 = xs.map((x, i) => `${i ? 'L' : 'M'}${x},${y(navArr[i])}`).join(' ');
+                    const d2 = benchArr.length === navArr.length ? xs.map((x, i) => `${i ? 'L' : 'M'}${x},${y(benchArr[i])}`).join(' ') : '';
+                    return (
+                        <svg width={w} height={h} className="mini-chart" role="img" aria-label="净值与基准">
+                          <rect x="0" y="0" width={w} height={h} fill="none" stroke="#eee"/>
+                          <path d={d1} fill="none" stroke="#1f77b4" strokeWidth="1.5"/>
+                          {d2 && <path d={d2} fill="none" stroke="#999" strokeWidth="1" strokeDasharray="3,2"/>}
+                        </svg>
+                    );
+                  })()}
+
                   <div className="kpis">
                     <div className="kpi">
                       <div className="kpi-label">Ann.Return</div>
-                      <div className={`kpi-value ${(backtest?.metrics?.ann_return ?? 0) >= 0 ? "up" : "down"}`}>
-                        {pct(backtest?.metrics?.ann_return, 1)}
+                      <div className={`kpi-value ${(btM.ann_return ?? 0) >= 0 ? "up" : "down"}`}>
+                        {pct(btM.ann_return, 1)}
                       </div>
                     </div>
                     <div className="kpi">
                       <div className="kpi-label">MDD</div>
-                      <div className="kpi-value down">{pct(backtest?.metrics?.mdd, 1)}</div>
+                      <div className="kpi-value down">{pct(btM.mdd, 1)}</div>
                     </div>
                     <div className="kpi">
                       <div className="kpi-label">Sharpe</div>
-                      <div className="kpi-value">{fmt(backtest?.metrics?.sharpe, 2)}</div>
+                      <div className="kpi-value">{fmt(btM.sharpe, 2)}</div>
                     </div>
                     <div className="kpi">
                       <div className="kpi-label">Winrate</div>
-                      <div className="kpi-value">{backtest?.metrics?.winrate == null ? "--" : `${Math.round((backtest!.metrics!.winrate as number) * 100)}%`}</div>
+                      <div className="kpi-value">
+                        {btM.winrate == null ? "--" : `${Math.round((btM.winrate as number) * 100)}%`}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -527,7 +652,7 @@ export default function HomePage() {
               <div className="card">
                 <div className="card-header">
                   <h3>Agents & Traces</h3>
-                  <a href="/#/monitor" className="link">查看 Trace →</a>
+                  <a href="/#/simulator" className="link">查看详情 →</a>
                 </div>
                 <div className="agents">
                   <div className="agent ok">Ingestor</div>
@@ -538,10 +663,22 @@ export default function HomePage() {
                   <div className="agent ok">Report</div>
                 </div>
                 <ul className="trace-list">
-                  <li>#f1a2… 2.3s OK</li>
-                  <li>#b7c9… 3.1s OK（降级：news 备用源）</li>
-                  <li>#98de… 1.8s OK</li>
+                  <li>
+                    Snapshot：{snapshot?.version_tag || "--"}
+                    <span
+                        className="muted"> @ {(snapshot as any)?.["as_of"] ?? (snapshot as any)?.["updated_at"] ?? snapshot?.version_tag ?? "--"}</span>
+                  </li>
+                  <li>
+                    Backtest：
+                    {backtest
+                        ? `${pct(btM.ann_return, 1)} ann / ${fmt(btM.sharpe, 2)} Sharpe / ${pct(btM.mdd, 1)} MDD`
+                        : "--"}
+                  </li>
+                  <li>
+                    Trace：{(decide as any)?.trace_id || (backtest as any)?.trace_id || "--"}
+                  </li>
                 </ul>
+
               </div>
             </div>
           </section>
