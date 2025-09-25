@@ -1,4 +1,4 @@
-import React from 'react';
+import * as React from 'react';
 import ReactECharts from 'echarts-for-react';
 
 export type Weight = { symbol: string; weight: number };

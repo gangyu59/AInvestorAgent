@@ -1,6 +1,6 @@
-import React from 'react';
+import * as React from 'react';
 
-type Row = { symbol: string; sector?: string; score?: number; weight: number; reason?: string[] };
+type Row = { symbol: string; sector?: string; score?: number; weight: number; reasons?: string[] };
 
 export default function HoldingsTable({ rows }: { rows: Row[] }) {
   return (
@@ -17,13 +17,13 @@ export default function HoldingsTable({ rows }: { rows: Row[] }) {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={r.symbol+'-'+i} style={{borderTop:'1px solid #333'}}>
-              <td>{r.symbol}</td>
-              <td>{r.sector || '—'}</td>
-              <td style={{textAlign:'right'}}>{r.score?.toFixed?.(2) ?? '—'}</td>
-              <td style={{textAlign:'right'}}>{(r.weight*100).toFixed(2)}%</td>
-              <td>{(r.reason || []).join(' | ')}</td>
-            </tr>
+              <tr key={r.symbol + '-' + i} style={{borderTop: '1px solid #333'}}>
+                <td>{r.symbol}</td>
+                <td>{r.sector || '—'}</td>
+                <td style={{textAlign: 'right'}}>{r.score?.toFixed?.(2) ?? '—'}</td>
+                <td style={{textAlign: 'right'}}>{(r.weight * 100).toFixed(2)}%</td>
+                <td>{(r.reasons ?? []).join(' | ')}</td>
+              </tr>
           ))}
         </tbody>
       </table>

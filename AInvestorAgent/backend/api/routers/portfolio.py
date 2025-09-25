@@ -70,7 +70,7 @@ class HoldingOut(BaseModel):
     weight: float
     score: float
     sector: Optional[str] = None
-    reasons: List[str] = []
+    reasons: List[str] = Field(default_factory=list)
 
 class ProposeResp(BaseModel):
     holdings: List[HoldingOut]

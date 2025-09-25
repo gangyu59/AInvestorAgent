@@ -145,32 +145,43 @@ export default function HomePage() {
   }, [backtest]);
 
   // ====== 一键组合：Decide Now ======
+  function getCheckedSymbols(): string[] {
+    const boxes = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="watch"]:checked')
+    );
+    return boxes
+      .map(b => (b.value || "").trim().toUpperCase())
+      .filter(Boolean);
+  }
+
+  // ====== 一键组合：Decide Now ======
   async function onDecide() {
     setLoading(true);
     setError(null);
     try {
+      // ✅ 优先使用勾选；无勾选则回退到已有状态 symbols
+      const picked = getCheckedSymbols();
+      const payloadSymbols = picked.length ? picked : symbols;
+
       let res: any;
-      if (typeof decideNow === "function") {
-        res = await decideNow({ symbols });
-      } else {
-        const base = (import.meta as any).env?.VITE_API_BASE || "";
-        const r = await fetch(`${base}/api/portfolio/propose`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symbols }),
-        });
-        if (!r.ok) throw new Error(await r.text());
-        res = await r.json();
-      }
+      const base = (import.meta as any).env?.VITE_API_BASE || "";
+      const r = await fetch(`${base}/api/portfolio/propose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: payloadSymbols }), // ← 关键
+      });
+      if (!r.ok) throw new Error(await r.text());
+      res = await r.json();
 
       setDecide(res);
 
-      // 跳组合页
+      // 带上 symbols 到组合页；portfolio 将据此只生成所选股票
       const sid = res?.snapshot_id ?? res?.context?.snapshot_id;
+      const qs  = `symbols=${encodeURIComponent(payloadSymbols.join(","))}`;
       if (sid) {
-        window.location.hash = `#/portfolio?sid=${encodeURIComponent(sid)}`;
+        window.location.hash = `#/portfolio?sid=${encodeURIComponent(sid)}&${qs}`;
       } else {
-        window.location.hash = "#/portfolio";
+        window.location.hash = `#/portfolio?${qs}`;
       }
     } catch (e: any) {
       setError(e?.message || "Decide 调用失败");
@@ -178,6 +189,13 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
+  }
+
+
+  // 表头“全选/清空”
+  function onToggleAll(e: React.ChangeEvent<HTMLInputElement>) {
+    const checked = e.target.checked;
+    document.querySelectorAll<HTMLInputElement>('input[name="watch"]').forEach(b => (b.checked = checked));
   }
 
   // ====== 回测：点击“Run Backtest” ======
@@ -431,11 +449,21 @@ export default function HomePage() {
                 </div>
                 <div className="table">
                   <div className="thead">
+                    {/* + 新增“全选/清空”列 */}
+                    <span style={{width: 26}}>
+                    <input type="checkbox" onChange={onToggleAll} title="全选/清空"/>
+                    </span>
                     <span>Symbol</span><span>Score</span><span>因子雷达</span><span>更新时间</span><span></span>
                   </div>
+
                   <div className="tbody">
                     {(scores || []).map(it => (
                         <div className="row" key={it.symbol}>
+                          {/* + 新增“选择”列 */}
+                          <span>
+                            <input type="checkbox" name="watch" value={it.symbol}
+                                   defaultChecked={symbols.includes(it.symbol)} />
+                          </span>
                           <span>{it.symbol}</span>
                           {(() => {
                             const s = (it as any)?.score?.score ?? (typeof (it as any).score === "number" ? (it as any).score : 0);
@@ -481,7 +509,7 @@ export default function HomePage() {
               {/* News & Sentiment */}
               <div className="card">
                 <div className="card-header">
-                  <h3>News & Sentiment (7D)</h3>
+                <h3>News & Sentiment (7D)</h3>
 
                   {(() => {
                     const list = (sentiment?.latest_news ?? []);
