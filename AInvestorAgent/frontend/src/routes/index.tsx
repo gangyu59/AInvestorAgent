@@ -6,8 +6,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  proposePortfolio,  // 新增
+  runBacktest,       // 新增
+  generateReport,    // 新增
   decideNow,
-  runBacktest,
   scoreBatch,
   fetchSentimentBrief,
   fetchLastSnapshot,
@@ -66,7 +68,7 @@ export default function HomePage() {
       mock: true,         // 保证演示稳定；要真实回测可去掉
     };
 
-    const r = await fetch(`${base}/backtest/run`, {
+    const r = await fetch(`${base}/api/backtest/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -155,89 +157,79 @@ export default function HomePage() {
   }
 
   // ====== 一键组合：Decide Now ======
+  // 修复后的 onDecide 函数 - 替换 index.tsx 中的对应函数
   async function onDecide() {
     setLoading(true);
     setError(null);
     try {
-      // ✅ 优先使用勾选；无勾选则回退到已有状态 symbols
+      // 优先使用勾选的symbols
       const picked = getCheckedSymbols();
       const payloadSymbols = picked.length ? picked : symbols;
 
-      let res: any;
-      const base = (import.meta as any).env?.VITE_API_BASE || "";
-      const r = await fetch(`${base}/api/portfolio/propose`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols: payloadSymbols }), // ← 关键
-      });
-      if (!r.ok) throw new Error(await r.text());
-      res = await r.json();
+      // 直接调用portfolio/propose接口
+      const res = await proposePortfolio(payloadSymbols);
+      setDecide({ context: { weights: {}, kept: [], orders: [] } }); // 临时设置
 
-      setDecide(res);
-
-      // 带上 symbols 到组合页；portfolio 将据此只生成所选股票
-      const sid = res?.snapshot_id ?? res?.context?.snapshot_id;
-      const qs  = `symbols=${encodeURIComponent(payloadSymbols.join(","))}`;
+      // 跳转到组合页面，携带symbols参数
+      const sid = res?.snapshot_id;
+      const qs = `symbols=${encodeURIComponent(payloadSymbols.join(","))}`;
       if (sid) {
         window.location.hash = `#/portfolio?sid=${encodeURIComponent(sid)}&${qs}`;
       } else {
         window.location.hash = `#/portfolio?${qs}`;
       }
     } catch (e: any) {
-      setError(e?.message || "Decide 调用失败");
-      alert("Decide 失败：" + (e?.message || ""));
+      setError(e?.message || "Decide调用失败");
+      console.error("Decide失败:", e);
     } finally {
       setLoading(false);
     }
   }
 
-
-  // 表头“全选/清空”
-  function onToggleAll(e: React.ChangeEvent<HTMLInputElement>) {
-    const checked = e.target.checked;
-    document.querySelectorAll<HTMLInputElement>('input[name="watch"]').forEach(b => (b.checked = checked));
-  }
-
-  // ====== 回测：点击“Run Backtest” ======
+  // 修复后的 onRunBacktest 函数
   async function onRunBacktest() {
     setLoading(true);
     setError(null);
     try {
-      // 取最新权重；没有快照/结果就用等权（不发 symbols/weeks 了）
-      const weightsObj: Record<string, number> =
-        (decide?.context?.weights as Record<string, number> | undefined) ||
-        (snapshot?.weights as Record<string, number> | undefined) ||
-        Object.fromEntries(symbols.map(s => [s, 1 / Math.max(symbols.length, 1)]));
+      // 使用当前symbols等权重回测
+      const weightsArray = symbols.map(s => ({
+        symbol: s,
+        weight: 1 / symbols.length
+      }));
 
-      const bt = await postBacktest(weightsObj);
+      const bt = await runBacktest({
+        weights: weightsArray,
+        window_days: 180,
+        trading_cost: 0,
+        mock: true,
+      });
 
-      // 跳模拟页
-      const bid = (bt as any)?.backtest_id;
-      if (bid) {
-        window.location.hash = `#/simulator?bid=${encodeURIComponent(bid)}`;
-      } else {
-        window.location.hash = "#/simulator";
-      }
+      setBacktest(bt);
+      try {
+        localStorage.setItem("lastBacktest", JSON.stringify(bt));
+      } catch {}
+
+      // 跳转到模拟页
+      window.location.hash = "#/simulator";
     } catch (e: any) {
-      setError(e?.message || "Backtest 调用失败");
-      alert("Backtest 失败：" + (e?.message || ""));
+      setError(e?.message || "Backtest调用失败");
+      console.error("Backtest失败:", e);
     } finally {
       setLoading(false);
     }
   }
 
-  // ====== 报告：Generate Report ======
+  // 修复后的 onGenerateReport 函数
   async function onGenerateReport() {
     try {
-      const base = (import.meta as any).env?.VITE_API_BASE || "";
-      const r = await fetch(`${base}/api/report/generate`, { method: "POST" });
-      if (!r.ok) throw new Error(await r.text());
-      const data = await r.json();
+      const data = await generateReport();
       const md = data?.content || "";
       if (!md) {
         alert("报告为空（可能尚未有组合快照）");
         return;
       }
+
+      // 直接下载
       const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -249,9 +241,18 @@ export default function HomePage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (e: any) {
-      alert("Generate Report 失败：" + (e?.message || ""));
+      alert("Generate Report失败：" + (e?.message || ""));
     }
   }
+
+
+  // 表头“全选/清空”
+  function onToggleAll(e: React.ChangeEvent<HTMLInputElement>) {
+    const checked = e.target.checked;
+    document.querySelectorAll<HTMLInputElement>('input[name="watch"]').forEach(b => (b.checked = checked));
+  }
+
+
 
   // ====== 个股分析：点击“运行 /api/analyze” ======
   async function onAnalyzeClick() {

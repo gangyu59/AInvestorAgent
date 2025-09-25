@@ -53,7 +53,7 @@ class SnapshotBrief(BaseModel):
     version_tag: Optional[str] = None
     kept: Optional[list[str]] = None
 
-@router.get("/portfolio/snapshot")
+@router.get("/snapshot")
 def get_portfolio_snapshot(latest: int = 1) -> SnapshotBrief:
     return SnapshotBrief()
 

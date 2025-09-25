@@ -65,12 +65,42 @@ def compute_metrics(nav: List[float]) -> Dict[str, float]:
         sharpe = 0.0
     return {"ann_return": float(ann), "sharpe": float(sharpe), "max_dd": float(mdd), "win_rate": 0.0}
 
+
 def fetch_price_series_local(symbol: str, days: int) -> List[Dict[str, Any]]:
-    url = f"http://127.0.0.1:8000/api/prices/series?symbol={symbol}&days={days}"
-    with urllib.request.urlopen(url, timeout=25) as resp:
-        data = json.loads(resp.read().decode("utf-8", "ignore"))
-    if isinstance(data, list): return data
-    return data.get("series") or data.get("data") or []
+    """修复版：使用正确的API路径并解析返回格式"""
+    url = f"http://127.0.0.1:8000/api/prices/daily?symbol={symbol}&limit={days}"
+    print(f"DEBUG: 正在调用 {url}")  # 调试信息
+
+    try:
+        with urllib.request.urlopen(url, timeout=25) as resp:
+            data = json.loads(resp.read().decode("utf-8", "ignore"))
+
+        print(f"DEBUG: 收到数据结构: {type(data)}, keys: {data.keys() if isinstance(data, dict) else 'N/A'}")
+
+        # 解析你的API返回格式：{"symbol":"AAPL","items":[...]}
+        if isinstance(data, dict) and "items" in data:
+            items = data["items"]
+            print(f"DEBUG: 解析到 {len(items)} 条价格记录")
+            # 转换为统一格式
+            result = []
+            for item in items:
+                result.append({
+                    "date": item.get("date", ""),
+                    "close": float(item.get("close", 0)),
+                    "open": float(item.get("open", 0)),
+                    "high": float(item.get("high", 0)),
+                    "low": float(item.get("low", 0)),
+                    "volume": item.get("volume", 0)
+                })
+            return result
+        elif isinstance(data, list):
+            return data
+        else:
+            return data.get("series") or data.get("data") or []
+
+    except Exception as e:
+        print(f"获取 {symbol} 价格数据失败: {e}")
+        return []
 
 def local_backtest(weights: List[Dict[str, Any]], days: int, benchmark: str = "SPY") -> Dict[str, Any]:
     # 1) 拉价格
@@ -125,66 +155,12 @@ def local_backtest(weights: List[Dict[str, Any]], days: int, benchmark: str = "S
     return { "dates": iso_dates, "nav": nav, "benchmark_nav": bm_nav, "drawdown": dd, "metrics": metrics }
 
 # ---------- 主路由 ----------
+# 替换 backtest.py 中的 /run 路由函数
 @router.post("/run")
 def run_backtest(req: RunBacktestReq):
     window_days = parse_window_days(req.window, req.window_days or 252)
 
-    # ⚡ 优先尝试你的 BacktestEngineer；任何异常都降级
-    try:
-        from backend.agents.backtest_engineer import BacktestEngineer
-        agent = BacktestEngineer()
-        payload = {
-            "snapshot_id": req.snapshot_id,
-            "weights": [w.model_dump() for w in (req.weights or [])] or None,
-            "window_days": window_days,
-            "trading_cost": req.trading_cost,
-            "rebalance": req.rebalance or "weekly",
-            "max_trades_per_week": req.max_trades_per_week or 3,
-            "benchmark_symbol": req.benchmark_symbol or "SPY",
-            "mock": req.mock,
-        }
-        payload = {k:v for k,v in payload.items() if v is not None}
-
-        res = agent.run(payload)
-        # 只要有 nav/ok 就返回；其余情况也视为失败转兜底
-        if isinstance(res, dict) and (res.get("nav") or res.get("ok", False)):
-            dates  = res.get("dates") or res.get("timeline") or []
-            nav    = res.get("nav") or res.get("portfolio_nav") or []
-            bench  = res.get("benchmark_nav") or res.get("bench") or []
-            dd     = res.get("drawdown") or compute_drawdown(nav)
-            m      = res.get("metrics") or compute_metrics(nav)
-
-            backtest_id = "bt_" + hashlib.md5(
-                f"{req.snapshot_id or ''}|{window_days}|{req.trading_cost}|{req.rebalance or 'weekly'}|{time.time()}".encode("utf-8")
-            ).hexdigest()[:10]
-
-            return {
-                "success": True,
-                "dates": dates,
-                "nav": nav,
-                "benchmark_nav": bench,
-                "drawdown": dd,
-                "metrics": {
-                    "ann_return": float(m.get("ann_return", 0.0)),
-                    "sharpe": float(m.get("sharpe", 0.0)),
-                    "max_dd": float(m.get("max_dd", m.get("mdd", 0.0))),
-                    "win_rate": float(m.get("win_rate", 0.0)),
-                },
-                "params": {
-                    "window": req.window or f"{window_days}D",
-                    "cost": req.trading_cost,
-                    "rebalance": req.rebalance or "weekly",
-                    "max_trades_per_week": req.max_trades_per_week or 3,
-                },
-                "version_tag": res.get("version_tag", "bt_v1.0.0"),
-                "backtest_id": backtest_id,
-            }
-        # 否则继续走降级
-    except Exception:
-        # 含 ImportError/ModuleNotFoundError/HTTPException 等全部吞掉，走兜底
-        pass
-
-    # 🛟 降级分支：需要 weights。snapshot_id 请给我快照查询接口后再接。
+    # 🛟 直接走降级分支：需要weights。
     raw_weights: List[Dict[str, Any]] = []
     if req.weights:
         # 兼容 WeightItem 或 dict
@@ -198,6 +174,7 @@ def run_backtest(req: RunBacktestReq):
     if not raw_weights:
         raise HTTPException(status_code=422, detail="请传 weights（或提供 snapshot_id → weights 的查询接口以支持降级回测）")
 
+    # 直接使用本地回测（已修复的版本）
     local = local_backtest(raw_weights, window_days, req.benchmark_symbol or "SPY")
     backtest_id = "bt_" + hashlib.md5(
         f"local|{window_days}|{req.trading_cost}|{req.rebalance or 'weekly'}|{time.time()}".encode("utf-8")
