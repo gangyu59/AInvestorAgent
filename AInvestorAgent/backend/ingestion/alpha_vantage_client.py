@@ -14,7 +14,6 @@ class AlphaVantageError(Exception):
     """AlphaVantage 相关错误（含速率限制/参数错误等）"""
     pass
 
-
 class PriceRow(TypedDict):
     symbol: str
     date: datetime.date
@@ -26,13 +25,11 @@ class PriceRow(TypedDict):
     dividend_amount: float
     split_coefficient: float
 
-
 def _apikey() -> str:
     key = get_settings().ALPHAVANTAGE_KEY
     if not key:
         raise AlphaVantageError("缺少环境变量 ALPHAVANTAGE_KEY")
     return key
-
 
 def _request(params: Dict[str, str]) -> Dict:
     """统一 GET 请求 + 基本错误处理"""
@@ -81,6 +78,26 @@ def normalize_daily(raw: Dict, symbol: str) -> List[PriceRow]:
         })
     rows.sort(key=lambda x: x["date"])
     return rows
+
+# === 兼容 BacktestEngineer 所需的函数式 API ==========================
+def get_prices_for_symbol(symbol: str, limit: int = 400) -> list[dict]:
+    raw = av_daily_raw(symbol, adjusted=True, outputsize="full")
+    rows = normalize_daily(raw, symbol)  # [{'date': date, 'close': float}, ...]
+    rows.sort(key=lambda r: r["date"])
+    cut = rows[-int(limit):] if limit else rows
+    return [{"date": r["date"].strftime("%Y-%m-%d"), "close": float(r["close"])} for r in cut]
+
+def get_prices_range(symbol: str, *, start_date: str, end_date: str) -> list[dict]:
+    raw = av_daily_raw(symbol, adjusted=True, outputsize="full")
+    rows = normalize_daily(raw, symbol)
+    rows.sort(key=lambda r: r["date"])
+    out = []
+    for r in rows:
+        d = r["date"].strftime("%Y-%m-%d")
+        if start_date <= d <= end_date:
+            out.append({"date": d, "close": float(r["close"])})
+    return out
+
 
 
 # —— 面向对象封装（可选用）———————————————————————————————

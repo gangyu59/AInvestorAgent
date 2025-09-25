@@ -87,15 +87,14 @@ def _load_prices(symbol: str, start: str, end: str, use_mock: bool) -> List[Dict
         return series
     # 真实数据：走你已有的 AlphaVantage 或 DB
     try:
-        from ingestion.alpha_vantage_client import get_prices_range
-        # 期望返回 [{'date': 'YYYY-MM-DD', 'close': float}, ...]
+        # 用 backend.ingestion 作为包前缀，保证文件里的 '..core.config' 这类相对导入能解析
+        from backend.ingestion.alpha_vantage_client import get_prices_range
         return get_prices_range(symbol, start_date=start, end_date=end)
     except Exception:
-        # 退化路径：尝试已有 get_prices_for_symbol 后再截断
-        from ingestion.alpha_vantage_client import get_prices_for_symbol
+        from backend.ingestion.alpha_vantage_client import get_prices_for_symbol
         series = get_prices_for_symbol(symbol, limit=400)
         series = sorted(series, key=lambda x: x.get("date", ""))
-        return [p for p in series if start <= p.get("date","") <= end]
+        return [p for p in series if start <= p.get("date", "") <= end]
 
 def _align_by_date(price_map: Dict[str, List[Dict[str, Any]]]) -> Tuple[List[str], Dict[str, List[float]]]:
     # 对齐为相同 trading days（缺失用前值填充）

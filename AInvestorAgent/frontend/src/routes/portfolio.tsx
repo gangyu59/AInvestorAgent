@@ -103,19 +103,33 @@ export default function PortfolioPage() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ gap: 8 }}>
+      <div className="page-header" style={{gap: 8}}>
         <h2>组合建议</h2>
         <input
-          defaultValue={pool}
-          onBlur={e => setPool(e.currentTarget.value)}
-          style={{ minWidth: 420 }}
-          placeholder="用逗号或空格分隔股票，如：AAPL, MSFT, TSLA"
+            defaultValue={pool}
+            onBlur={e => setPool(e.currentTarget.value)}
+            style={{minWidth: 420}}
+            placeholder="用逗号或空格分隔股票，如：AAPL, MSFT, TSLA"
         />
         <button className="btn btn-primary" onClick={() => onPropose()} disabled={loading}>
           {loading ? "生成中…" : "一键生成"}
         </button>
         <button className="btn" onClick={exportCSV} disabled={!resp?.holdings?.length}>
           导出 CSV
+        </button>
+        <button
+            className="btn"
+            onClick={() => {
+              if (!resp?.snapshot_id) {
+                alert("当前无有效快照，先点『一键生成』产出组合。");
+                return;
+              }
+              // 跳转到回测页，携带 sid
+              window.location.hash = `#/simulator?sid=${encodeURIComponent(resp.snapshot_id)}`;
+            }}
+            disabled={!resp?.snapshot_id}
+        >
+          Run Backtest
         </button>
       </div>
 
