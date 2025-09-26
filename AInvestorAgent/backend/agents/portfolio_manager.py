@@ -1,6 +1,10 @@
 # backend/agents/portfolio_manager.py
 from __future__ import annotations
 from typing import Dict, Any
+import re
+import logging
+logger = logging.getLogger(__name__)
+
 
 class PortfolioManager:
     name = "portfolio_manager"
@@ -80,27 +84,40 @@ class EnhancedPortfolioManager(PortfolioManager):
             )
 
             # 解析LLM响应
-            lines = llm_response.strip().split('\n')
+            # 解析LLM响应（先做全角->半角标准化）
+            import re  # 若文件顶部没有，请在文件顶部的 import 区域补上一行：import re
+
+            resp = (llm_response or "")
+            resp = resp.replace('％', '%').replace('：', ':').replace('，', ',')
+            lines = resp.strip().split('\n')
+
             weights = []
             reasoning = ""
 
             for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
                 if ':' in line and '%' in line and '理由' not in line:
                     # 解析权重行：AAPL:25%,MSFT:20%,...
-                    pairs = line.split(',')
+                    pairs = [p.strip() for p in line.split(',')]
                     for pair in pairs:
                         if ':' in pair and '%' in pair:
-                            symbol, weight_str = pair.split(':')
+                            symbol, weight_str = pair.split(':', 1)
                             try:
-                                weight = float(weight_str.replace('%', '')) / 100.0
+                                weight = float(weight_str.replace('%', '').strip()) / 100.0
                                 weights.append({
                                     "symbol": symbol.strip().upper(),
-                                    "weight": min(0.3, max(0.0, weight))  # 限制权重范围
+                                    "weight": min(0.3, max(0.0, weight))  # 单票上限先在这里夹一下
                                 })
                             except ValueError:
                                 continue
+
                 elif '理由' in line:
-                    reasoning = line.split('理由：')[-1].strip()
+                    m = re.search(r'理由[:：]\s*(.*)$', line)
+                    if m:
+                        reasoning = m.group(1).strip()
 
             # 权重标准化
             total_weight = sum(w["weight"] for w in weights)

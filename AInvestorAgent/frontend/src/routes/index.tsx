@@ -13,6 +13,7 @@ import {
   scoreBatch,
   fetchSentimentBrief,
   fetchLastSnapshot,
+  smartDecide,
   type DecideResponse,
   type BacktestResponse,
   type ScoreItem,
@@ -162,7 +163,6 @@ export default function HomePage() {
   }
 
   // ====== 一键组合：Decide Now ======
-  // 修复后的 onDecide 函数 - 替换 index.tsx 中的对应函数
   async function onDecide() {
     setLoading(true);
     setError(null);
@@ -171,20 +171,67 @@ export default function HomePage() {
       const picked = getCheckedSymbols();
       const payloadSymbols = picked.length ? picked : symbols;
 
-      // 直接调用portfolio/propose接口
-      const res = await proposePortfolio(payloadSymbols);
-      setDecide({ context: { weights: {}, kept: [], orders: [] } }); // 临时设置
+      // 先尝试智能决策，失败则回退
+      try {
+        const decisionResult = await smartDecide({
+          symbols: payloadSymbols,
+          topk: 8,
+          min_score: 60,
+          use_llm: true,
+          refresh_prices: true
+        });
 
-      // 跳转到组合页面，携带symbols参数
-      const sid = res?.snapshot_id;
-      const qs = `symbols=${encodeURIComponent(payloadSymbols.join(","))}`;
-      if (sid) {
-        window.location.hash = `#/portfolio?sid=${encodeURIComponent(sid)}&${qs}`;
-      } else {
-        window.location.hash = `#/portfolio?${qs}`;
+        if (decisionResult.reasoning) {
+          setAnalyzeMsg(`🎯 AI决策: ${decisionResult.reasoning}`);
+        }
+
+        // 安全地设置决策状态
+        setDecide({
+          context: {
+            weights: decisionResult.holdings?.reduce((acc, h) => {
+              acc[h.symbol] = h.weight;
+              return acc;
+            }, {} as Record<string, number>) || {},
+            kept: decisionResult.holdings?.map(h => h.symbol) || [],
+            orders: [],
+            version_tag: decisionResult.version_tag || "ai_v1"
+          }
+        });
+
+        // 跳转逻辑
+        const sid = decisionResult?.snapshot_id;
+        const qs = `symbols=${encodeURIComponent(payloadSymbols.join(","))}`;
+        if (sid) {
+          window.location.hash = `#/portfolio?sid=${encodeURIComponent(sid)}&${qs}`;
+        } else {
+          window.location.hash = `#/portfolio?${qs}`;
+        }
+
+      } catch (smartError) {
+        console.warn("智能决策失败，回退到基础决策:", smartError);
+
+        // 回退到原有的 portfolio/propose
+        const res = await proposePortfolio(payloadSymbols);
+        setDecide({
+          context: {
+            weights: {},
+            kept: [],
+            orders: [],
+            version_tag: "basic_v1"
+          }
+        });
+
+        const sid = res?.snapshot_id;
+        const qs = `symbols=${encodeURIComponent(payloadSymbols.join(","))}`;
+        if (sid) {
+          window.location.hash = `#/portfolio?sid=${encodeURIComponent(sid)}&${qs}`;
+        } else {
+          window.location.hash = `#/portfolio?${qs}`;
+        }
       }
+
     } catch (e: any) {
-      setError(e?.message || "Decide调用失败");
+      setError(e?.message || "决策调用失败");
       console.error("Decide失败:", e);
     } finally {
       setLoading(false);
@@ -865,6 +912,56 @@ export default function HomePage() {
                       <span id="sentimentStatus" className="status-indicator">检查中...</span>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* 最近决策卡片 - 完全修复版 */}
+              <div className="card">
+                <div className="card-header">
+                  <h3>最近决策</h3>
+                  <span className="timestamp">{new Date().toLocaleTimeString()}</span>
+                </div>
+                <div className="card-body column">
+                  {decide?.context?.kept?.length ? (
+                    <>
+                      <div className="decision-summary">
+                        <div className="metric">
+                          <span className="label">选中股票:</span>
+                          <span className="value">{decide?.context?.kept?.length || 0} 只</span>
+                        </div>
+                        <div className="metric">
+                          <span className="label">决策方法:</span>
+                          <span className="value">
+                            {decide?.context?.version_tag?.includes('ai') ? 'AI增强' : '传统算法'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="holdings-preview">
+                        {decide?.context?.kept?.slice(0, 3).map((symbol, i) => (
+                          <div key={i} className="holding-chip">
+                            <span className="symbol">{symbol}</span>
+                            <span className="weight">
+                              {((decide?.context?.weights?.[symbol] || 0) * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                        ))}
+                        {(decide?.context?.kept?.length || 0) > 3 && (
+                          <span className="more">+{(decide?.context?.kept?.length || 0) - 3} 更多</span>
+                        )}
+                      </div>
+
+                      <div className="actions">
+                        <button className="btn btn-sm" onClick={() => window.location.hash = '#/portfolio'}>
+                          查看详情
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="empty-state">
+                      <span>点击 "Decide Now" 生成投资建议</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

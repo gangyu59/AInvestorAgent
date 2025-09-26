@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import math
 from backend.agents.base_agent import AgentContext
+import logging
+logger = logging.getLogger(__name__)
 
 class SignalResearcher:
     name = "signal_researcher"
@@ -218,15 +220,11 @@ class EnhancedSignalResearcher(SignalResearcher):
                 max_tokens=300
             )
 
-            # 解析LLM结果
-            llm_parts = llm_analysis.split('|')
-            if len(llm_parts) >= 4:
-                recommendation = llm_parts[0].strip()
-                confidence = llm_parts[1].strip()
-                risk = llm_parts[2].strip()
-                logic = llm_parts[3].strip()
-
-                # 增强基础结果
+            # 解析LLM结果（更稳健：兼容全角“｜”，并限制最多分成4段）
+            text = (llm_analysis or "").replace('｜', '|')
+            parts = [p.strip() for p in text.split('|', maxsplit=3)]
+            if len(parts) >= 4:
+                recommendation, confidence, risk, logic = parts[:4]
                 base_result["llm_analysis"] = {
                     "recommendation": recommendation,
                     "confidence": confidence,

@@ -227,3 +227,37 @@ export async function fetchPriceSeries(
   console.warn(`无法获取 ${symbol} 的价格数据`);
   return [];
 }
+
+
+// 在 frontend/src/services/endpoints.ts 中添加
+
+// 智能决策接口
+export interface SmartDecideRequest {
+  symbols: string[];
+  topk?: number;
+  min_score?: number;
+  use_llm?: boolean;
+  refresh_prices?: boolean;
+}
+
+export interface SmartDecideResponse {
+  as_of: string;
+  universe: string[];
+  analyses: Record<string, any>;
+  holdings: Array<{symbol: string; weight: number; reasoning?: string}>;
+  reasoning?: string;
+  method: string;
+  snapshot_id?: string;
+  version_tag?: string;
+}
+
+// 智能决策 API
+export async function smartDecide(req: SmartDecideRequest): Promise<SmartDecideResponse> {
+  const response = await fetch(`${API_BASE}/orchestrator/decide`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(req)
+  }).then(ok);
+
+  return response.json();
+}

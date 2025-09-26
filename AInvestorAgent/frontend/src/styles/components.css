@@ -1,0 +1,62 @@
+/* 决策相关样式 */
+.decision-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.decision-summary .metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.decision-summary .label {
+  font-size: 12px;
+  color: #a0aec0;
+}
+
+.decision-summary .value {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.holdings-preview {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.holding-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #2d3748;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.holding-chip .symbol {
+  font-weight: 600;
+  color: #4fd1c7;
+}
+
+.holding-chip .weight {
+  color: #a0aec0;
+}
+
+.holdings-preview .more {
+  color: #a0aec0;
+  font-size: 12px;
+  align-self: center;
+}
+
+.empty-state {
+  text-align: center;
+  color: #a0aec0;
+  font-style: italic;
+  padding: 20px 0;
+}
