@@ -142,9 +142,14 @@ export default function HomePage() {
   }, [snapshot]);
 
   const btM = useMemo(() => {
-    const m = backtest?.metrics ?? (backtest as any)?.result?.metrics ?? null;
+    // 直接从顶层读取 metrics，不需要 result 包装
+    const m = backtest?.metrics ?? null;
     return normMetrics(m);
   }, [backtest]);
+
+  // 修复 NAV 数组获取
+  const navArr = backtest?.nav ?? [];
+  const benchArr = backtest?.benchmark_nav ?? [];
 
   // ====== 一键组合：Decide Now ======
   function getCheckedSymbols(): string[] {
@@ -191,29 +196,19 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     try {
-      // 使用当前symbols等权重回测
-      const weightsArray = symbols.map(s => ({
-        symbol: s,
-        weight: 1 / symbols.length
-      }));
-
-      const bt = await runBacktest({
-        weights: weightsArray,
-        window_days: 180,
-        trading_cost: 0,
-        mock: true,
+      // 构造等权重
+      const weightsObj: Record<string, number> = {};
+      symbols.forEach(s => {
+        weightsObj[s] = 1 / symbols.length;
       });
 
-      setBacktest(bt);
-      try {
-        localStorage.setItem("lastBacktest", JSON.stringify(bt));
-      } catch {}
+      // 直接调用已验证的 postBacktest
+      const bt = await postBacktest(weightsObj);
 
       // 跳转到模拟页
       window.location.hash = "#/simulator";
     } catch (e: any) {
       setError(e?.message || "Backtest调用失败");
-      console.error("Backtest失败:", e);
     } finally {
       setLoading(false);
     }
