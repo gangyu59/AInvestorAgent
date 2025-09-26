@@ -32,6 +32,7 @@ from backend.api.routers import analyze
 from backend.api.routers import sentiment   # 新增
 from backend.api.routers import llm as llm_router_api
 from backend.api.routers import decide
+from backend.api.routers import simulation
 
 from fastapi.staticfiles import StaticFiles
 
@@ -86,6 +87,7 @@ app.include_router(analyze.router, prefix="/api")
 app.include_router(sentiment.router, prefix="/api")
 app.include_router(llm_router_api.router)
 app.include_router(decide.router)
+app.include_router(simulation.router)
 
 app.router.lifespan_context = lifespan
 

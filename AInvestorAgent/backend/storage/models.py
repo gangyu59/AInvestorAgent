@@ -90,3 +90,67 @@ class ScoreDaily(Base):
     score = Column(Float, nullable=False)       # 0..100
     version_tag = Column(String, default="v0.1", index=True)
     __table_args__ = (Index("uq_scores_asof_symbol", "as_of", "symbol", unique=True),)
+
+# 在 backend/storage/models.py 中添加以下表定义
+
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
+from datetime import datetime
+
+# 模拟账户表
+class SimAccount(Base):
+    __tablename__ = "sim_accounts"
+
+    account_id = Column(String, primary_key=True)
+    account_name = Column(String, nullable=False)
+    initial_cash = Column(Float, default=100000.0)  # 初始资金
+    current_cash = Column(Float, default=100000.0)  # 当前现金
+    total_value = Column(Float, default=100000.0)  # 总资产价值
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# 模拟持仓表
+class SimPosition(Base):
+    __tablename__ = "sim_positions"
+
+    position_id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(String, ForeignKey("sim_accounts.account_id"))
+    symbol = Column(String, nullable=False)
+    quantity = Column(Float, default=0)  # 持有数量
+    avg_cost = Column(Float, default=0)  # 平均成本
+    market_value = Column(Float, default=0)  # 市值
+    unrealized_pnl = Column(Float, default=0)  # 浮动盈亏
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# 模拟交易表
+class SimTrade(Base):
+    __tablename__ = "sim_trades"
+
+    trade_id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(String, ForeignKey("sim_accounts.account_id"))
+    symbol = Column(String, nullable=False)
+    action = Column(String, nullable=False)  # BUY/SELL
+    quantity = Column(Float, nullable=False)
+    price = Column(Float, nullable=False)
+    total_amount = Column(Float, nullable=False)  # 总金额
+    commission = Column(Float, default=0)  # 手续费
+    trade_date = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, default="FILLED")  # PENDING/FILLED/CANCELLED
+    source = Column(String, default="MANUAL")  # MANUAL/AUTO/DECISION
+    decision_id = Column(String, nullable=True)  # 关联的决策ID
+
+# 每日P&L记录表
+class SimDailyPnL(Base):
+    __tablename__ = "sim_daily_pnl"
+
+    record_id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(String, ForeignKey("sim_accounts.account_id"))
+    trade_date = Column(String, nullable=False)  # YYYY-MM-DD
+    total_value = Column(Float, nullable=False)
+    cash_value = Column(Float, nullable=False)
+    position_value = Column(Float, nullable=False)
+    daily_pnl = Column(Float, default=0)  # 当日盈亏
+    cumulative_pnl = Column(Float, default=0)  # 累计盈亏
+    return_pct = Column(Float, default=0)  # 当日收益率
+    created_at = Column(DateTime, default=datetime.utcnow)

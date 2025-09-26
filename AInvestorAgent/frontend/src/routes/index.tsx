@@ -492,6 +492,7 @@ export default function HomePage() {
           <a href="/#/stock" className="nav-item">个股</a>
           <a href="/#/portfolio" className="nav-item">组合</a>
           <a href="/#/simulator" className="nav-item">模拟</a>
+          <a href="/#/trading" className="nav-item">交易</a>
           <a href="/#/monitor" className="nav-item">舆情</a>
           <a href="/#/manage" className="nav-item">管理</a>
         </nav>
@@ -542,6 +543,7 @@ export default function HomePage() {
             <a href="/#/stock" className="nav-item">个股分析（Stock）</a>
             <a href="/#/portfolio" className="nav-item">组合建议（Portfolio）</a>
             <a href="/#/simulator" className="nav-item">回测与模拟（Simulator）</a>
+            <a href="/#/trading" className="nav-item">模拟交易（Trading）</a>
             <a href="/#/monitor" className="nav-item">舆情与监控（Monitor）</a>
             <a href="/#/manage" className="nav-item">管理与配置（Manage）</a>
           </nav>
@@ -802,6 +804,27 @@ export default function HomePage() {
                   {/* AI分析结果显示区域 */}
                   <div id="aiAnalysisResult" className="ai-result" style={{marginTop: 12}}>
                     <div id="analyzeOut" className="muted small">{analyzeMsg}</div>
+                  </div>
+                </div>
+              </div>
+
+              // 在首页添加一个新的卡片
+              <div className="card">
+                <div className="card-header">
+                  <h3>模拟交易</h3>
+                  <a href="/#/trading" className="link">进入交易 →</a>
+                </div>
+                <div className="card-body">
+                  <div className="quick-actions">
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => window.location.hash = '#/trading'}
+                    >
+                      开始模拟交易
+                    </button>
+                    <p className="hint">
+                      基于AI决策进行模拟投资，追踪收益表现
+                    </p>
                   </div>
                 </div>
               </div>

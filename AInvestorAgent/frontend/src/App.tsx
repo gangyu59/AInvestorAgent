@@ -5,11 +5,12 @@ import PortfolioPage from "./routes/portfolio";
 import SimulatorPage from "./routes/simulator";
 import MonitorPage from "./routes/monitor";
 import ManagePage from "./routes/manage";
+import TradingPage from "./routes/trading";
 
-type Route = "home" | "stock" | "portfolio" | "simulator" | "monitor" | "manage";
+type Route = "home" | "stock" | "portfolio" | "simulator" | "monitor" | "manage" | "trading";
 
 function parseRoute(hash: string): { route: Route; query?: Record<string, string> } {
-  const h = (hash || "").replace(/^#\/?/, ""); // e.g., "stock?query=AAPL"
+  const h = (hash || "").replace(/^#\/?/, "");
   const [path, qs] = h.split("?");
   const route = (path || "").trim() as Route;
   const query = Object.fromEntries(new URLSearchParams(qs || ""));
@@ -19,6 +20,7 @@ function parseRoute(hash: string): { route: Route; query?: Record<string, string
     case "simulator":
     case "monitor":
     case "manage":
+    case "trading":
       return { route, query };
     default:
       return { route: "home" };
@@ -41,6 +43,7 @@ export default function App() {
       case "simulator": return <SimulatorPage />;
       case "monitor": return <MonitorPage />;
       case "manage": return <ManagePage />;
+      case "trading": return <TradingPage />;
       default: return <HomePage />;
     }
   }, [route, query]);
