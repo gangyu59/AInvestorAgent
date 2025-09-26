@@ -1,4 +1,12 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).resolve().parents[1]  # 指向项目根 AInvestorAgent/AInvestorAgent/
+ENV_FILE = ROOT_DIR / ".env"
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE, override=False)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.storage.db import engine, Base
@@ -17,8 +25,7 @@ from backend.api.trace import router as trace_router
 from backend.api.routers import sim
 from backend.api.routers import analyze
 from backend.api.routers import sentiment   # 新增
-
-# backend/app.py 的顶部 import 里加
+from backend.api.routers import llm as llm_router_api
 from fastapi.staticfiles import StaticFiles
 
 # 自动建表（SQLite 简化）
@@ -46,8 +53,10 @@ app.include_router(backtest_router.router, prefix="/api")
 app.include_router(viz_router, prefix="/api")
 app.include_router(trace_router, prefix="/api")
 app.include_router(sim.router)
-app.include_router(analyze.router)
-app.include_router(sentiment.router)
+app.include_router(analyze.router, prefix="/api")
+app.include_router(sentiment.router, prefix="/api")
+app.include_router(llm_router_api.router)
+
 
 # 静态挂载 /reports 以便前端能打开 last_report.html
 REPORT_DIR = os.path.join(os.path.dirname(__file__), "reports")

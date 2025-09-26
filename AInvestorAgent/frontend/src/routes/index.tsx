@@ -248,22 +248,188 @@ export default function HomePage() {
   }
 
 
-
-  // ====== 个股分析：点击“运行 /api/analyze” ======
+  // 修改现有的 onAnalyzeClick 函数
   async function onAnalyzeClick() {
     try {
       const el = document.querySelector<HTMLInputElement>("#analyzeSym");
       const sym = (el?.value || "AAPL").trim().toUpperCase();
-      setAnalyzeMsg(`正在分析 ${sym} …`);
-      const url = `${API_BASE}${analyzeEndpoint(sym)}`;
-      const r = await fetch(url, { method: "GET" });
+      setAnalyzeMsg(`🧠 AI正在分析 ${sym}...`);
+
+      // 调用AI增强分析
+      const url = `${API_BASE}/api/analyze/smart/${sym}`;
+      const r = await fetch(url, { method: "POST" });
       if (!r.ok) throw new Error(await r.text());
-      setAnalyzeMsg(`已触发 /api/analyze/${sym} 成功`); // ✅ 不跳页，只提示
+
+      const result = await r.json();
+      const analysis = result.analysis;
+      const llmInfo = analysis.llm_analysis;
+
+      // 可视化显示AI结果
+      const resultDiv = document.getElementById('aiAnalysisResult');
+      if (resultDiv && llmInfo) {
+        resultDiv.innerHTML = `
+          <div class="ai-analysis-card" style="background: #1a2332; border: 1px solid #2d3748; border-radius: 8px; padding: 12px; margin-top: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-weight: bold; color: #4fd1c7;">🤖 AI分析结果</span>
+              <span style="font-size: 12px; color: #a0aec0;">信心度: ${llmInfo.confidence || 'N/A'}</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div>
+                <div style="font-size: 12px; color: #a0aec0; margin-bottom: 4px;">投资建议</div>
+                <div style="color: ${llmInfo.recommendation?.includes('买入') ? '#48bb78' : llmInfo.recommendation?.includes('卖出') ? '#f56565' : '#ed8936'}; font-weight: bold;">
+                  ${llmInfo.recommendation || 'N/A'}
+                </div>
+              </div>
+              
+              <div>
+                <div style="font-size: 12px; color: #a0aec0; margin-bottom: 4px;">综合评分</div>
+                <div style="color: #4fd1c7; font-weight: bold; font-size: 18px;">
+                  ${analysis.score || 0}
+                </div>
+              </div>
+            </div>
+            
+            <div style="margin-top: 12px;">
+              <div style="font-size: 12px; color: #a0aec0; margin-bottom: 4px;">核心逻辑</div>
+              <div style="color: #e2e8f0; font-size: 13px; line-height: 1.4;">
+                ${llmInfo.logic || '分析中...'}
+              </div>
+            </div>
+            
+            <div style="margin-top: 12px;">
+              <div style="font-size: 12px; color: #a0aec0; margin-bottom: 4px;">风险提示</div>
+              <div style="color: #fbb6ce; font-size: 13px;">
+                ${llmInfo.risk || '暂无特殊风险'}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      setAnalyzeMsg(`✅ ${sym} AI分析完成`);
     } catch (e: any) {
-      setAnalyzeMsg(`Analyze 失败：${e?.message || ""}`);
+      setAnalyzeMsg(`❌ AI分析失败：${e?.message || ""}`);
     }
   }
 
+  // 添加检查AI状态的函数
+  async function checkAIStatus() {
+    const updateStatus = (id: string, status: string, color: string) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.textContent = status;
+        el.style.color = color;
+      }
+    };
+
+    // 检查DeepSeek
+    try {
+      const result = await fetch(`${API_BASE}/api/analyze/smart/AAPL`, { method: "POST" });
+      const data = await result.json();
+      if (data.analysis?.llm_analysis && !data.analysis.llm_analysis.error) {
+        updateStatus('deepseekStatus', '✅ 正常', '#48bb78');
+      } else {
+        updateStatus('deepseekStatus', '❌ 异常', '#f56565');
+      }
+    } catch {
+      updateStatus('deepseekStatus', '❌ 连接失败', '#f56565');
+    }
+
+    // 检查豆包(通过组合决策测试)
+    try {
+      const result = await fetch(`${API_BASE}/orchestrator/decide`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topk: 3, params: { use_llm: true } })
+      });
+      const data = await result.json();
+      if (data.context?.reasoning) {
+        updateStatus('doubaoStatus', '✅ 正常', '#48bb78');
+      } else {
+        updateStatus('doubaoStatus', '⚠️ 部分功能', '#ed8936');
+      }
+    } catch {
+      updateStatus('doubaoStatus', '❌ 连接失败', '#f56565');
+    }
+
+    // 检查情绪分析
+    try {
+      const result = await fetch(`${API_BASE}/api/sentiment/brief?symbols=AAPL&days=7`);
+      if (result.ok) {
+        updateStatus('sentimentStatus', '✅ 正常', '#48bb78');
+      } else {
+        updateStatus('sentimentStatus', '❌ 异常', '#f56565');
+      }
+    } catch {
+      updateStatus('sentimentStatus', '❌ 连接失败', '#f56565');
+    }
+  }
+
+
+  // 新增对比分析功能
+  async function onCompareAnalysis() {
+    try {
+      const el = document.querySelector<HTMLInputElement>("#analyzeSym");
+      const sym = (el?.value || "AAPL").trim().toUpperCase();
+      setAnalyzeMsg(`🔬 对比分析 ${sym}...`);
+
+      // 并行调用基础分析和AI分析
+      const [basicResult, aiResult] = await Promise.all([
+        fetch(`${API_BASE}/api/analyze/${sym}`, { method: "GET" }).then(r => r.json()),
+        fetch(`${API_BASE}/api/analyze/smart/${sym}`, { method: "POST" }).then(r => r.json())
+      ]);
+
+      // 显示对比结果
+      const resultDiv = document.getElementById('aiAnalysisResult');
+      if (resultDiv) {
+        const basicScore = basicResult?.score || 0;
+        const aiScore = aiResult?.analysis?.score || 0;
+        const improvement = aiScore - basicScore;
+
+        resultDiv.innerHTML = `
+          <div class="comparison-card" style="background: #1a2332; border: 1px solid #2d3748; border-radius: 8px; padding: 12px; margin-top: 8px;">
+            <div style="text-align: center; margin-bottom: 16px;">
+              <span style="font-weight: bold; color: #4fd1c7;">📊 基础 vs AI 对比分析</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; text-align: center;">
+              <div>
+                <div style="font-size: 12px; color: #a0aec0;">基础分析</div>
+                <div style="font-size: 24px; color: #ed8936; font-weight: bold;">${basicScore}</div>
+                <div style="font-size: 12px; color: #a0aec0;">传统算法</div>
+              </div>
+              
+              <div>
+                <div style="font-size: 12px; color: #a0aec0;">AI增强</div>
+                <div style="font-size: 24px; color: #4fd1c7; font-weight: bold;">${aiScore}</div>
+                <div style="font-size: 12px; color: #a0aec0;">LLM分析</div>
+              </div>
+              
+              <div>
+                <div style="font-size: 12px; color: #a0aec0;">提升幅度</div>
+                <div style="font-size: 24px; color: ${improvement >= 0 ? '#48bb78' : '#f56565'}; font-weight: bold;">
+                  ${improvement >= 0 ? '+' : ''}${improvement}
+                </div>
+                <div style="font-size: 12px; color: #a0aec0;">${improvement >= 0 ? '智能提升' : '保守调整'}</div>
+              </div>
+            </div>
+            
+            <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #2d3748;">
+              <div style="font-size: 12px; color: #a0aec0; margin-bottom: 4px;">AI洞察</div>
+              <div style="color: #e2e8f0; font-size: 13px;">
+                ${aiResult?.analysis?.llm_analysis?.logic || 'AI正在学习市场模式...'}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      setAnalyzeMsg(`✅ ${sym} 对比分析完成`);
+    } catch (e: any) {
+      setAnalyzeMsg(`❌ 对比分析失败：${e?.message || ""}`);
+    }
+  }
 
   return (
     <>
@@ -573,15 +739,21 @@ export default function HomePage() {
             </div>
 
             <div className="stack">
+              // 替换现有的 Analyze Snapshot 卡片内容
               <div className="card">
                 <div className="card-header">
-                  <h3>Analyze Snapshot</h3>
+                  <h3>AI智能分析</h3>
                   <a href="/#/stock" className="link">到个股页 →</a>
                 </div>
                 <div className="card-body column">
-                  <div className="row" style={{gap: 8}}>
-                    <input id="analyzeSym" defaultValue="AAPL"/>
-                    <button className="btn" onClick={onAnalyzeClick}>运行 /api/analyze</button>
+                  <div className="row" style={{gap: 8, alignItems: "center"}}>
+                    <input id="analyzeSym" defaultValue="AAPL" style={{width: 80}} />
+                    <button className="btn" onClick={onAnalyzeClick}>AI分析</button>
+                    <button className="btn btn-secondary" onClick={onCompareAnalysis}>对比分析</button>
+                  </div>
+
+                  {/* AI分析结果显示区域 */}
+                  <div id="aiAnalysisResult" className="ai-result" style={{marginTop: 12}}>
                     <div id="analyzeOut" className="muted small">{analyzeMsg}</div>
                   </div>
                 </div>
@@ -667,6 +839,30 @@ export default function HomePage() {
                       <div className="kpi-value">
                         {btM.winrate == null ? "--" : `${Math.round((btM.winrate as number) * 100)}%`}
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              // 在现有卡片之后添加这个新卡片
+              <div className="card">
+                <div className="card-header">
+                  <h3>🤖 AI状态监控</h3>
+                  <button className="btn btn-sm" onClick={checkAIStatus}>检查状态</button>
+                </div>
+                <div className="card-body column">
+                  <div id="aiStatusDisplay" className="ai-status">
+                    <div className="status-item">
+                      <span>DeepSeek: </span>
+                      <span id="deepseekStatus" className="status-indicator">检查中...</span>
+                    </div>
+                    <div className="status-item">
+                      <span>豆包(ARK): </span>
+                      <span id="doubaoStatus" className="status-indicator">检查中...</span>
+                    </div>
+                    <div className="status-item">
+                      <span>情绪分析: </span>
+                      <span id="sentimentStatus" className="status-indicator">检查中...</span>
                     </div>
                   </div>
                 </div>

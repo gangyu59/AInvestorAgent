@@ -154,3 +154,94 @@ class SignalResearcher:
             return {"ok": True, "symbol": symbol,
                     "factors": {"value": n(13), "quality": n(37), "momentum": n(59), "sentiment": n(71)},
                     "score": round(100.0 * (0.25 * n(13) + 0.25 * n(37) + 0.30 * n(59) + 0.20 * n(71)))}
+
+
+class EnhancedSignalResearcher(SignalResearcher):
+    """增强版信号研究员，支持LLM分析"""
+
+    def __init__(self, ctx=None):
+        super().__init__(ctx)
+        self.use_llm = True  # 可通过上下文控制是否启用LLM
+
+    async def run_with_llm(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """带LLM增强的分析"""
+        # 先执行基础分析
+        base_result = self.run(ctx)
+
+        if not self.use_llm or not base_result.get("ok"):
+            return base_result
+
+        try:
+            # 准备LLM分析的上下文
+            symbol = ctx.get("symbol", "UNKNOWN")
+            factors = base_result.get("factors", {})
+            fundamentals = ctx.get("fundamentals", {})
+            news_raw = ctx.get("news_raw", [])
+
+            # 构建LLM提示
+            news_summary = ""
+            if news_raw:
+                news_texts = [item.get("title", "") + " " + item.get("summary", "")
+                              for item in news_raw[:5]]  # 最近5条新闻
+                news_summary = "\n".join(news_texts)
+            else:
+                news_summary = "无相关新闻"
+
+            prompt = f"""作为专业股票分析师，请分析{symbol}：
+
+技术指标：
+- 价值因子: {factors.get('value', 0):.2f} (0-1，越高越便宜)
+- 质量因子: {factors.get('quality', 0):.2f} (0-1，越高质量越好)  
+- 动量因子: {factors.get('momentum', 0):.2f} (0-1，越高动能越强)
+- 情绪因子: {factors.get('sentiment', 0):.2f} (0-1，越高情绪越正面)
+
+基本面：
+- PE比率: {fundamentals.get('pe', 'N/A')}
+- ROE: {fundamentals.get('roe', 'N/A')}%
+
+近期新闻：
+{news_summary}
+
+请提供：
+1. 投资建议(买入/持有/卖出)
+2. 信心等级(1-10)
+3. 关键风险(1-2点)
+4. 核心逻辑(1句话)
+
+格式: 建议|信心|风险|逻辑"""
+
+            from backend.sentiment.llm_router import llm_router, LLMProvider
+            llm_analysis = await llm_router.call_llm(
+                prompt=prompt,
+                provider=LLMProvider.DEEPSEEK,
+                temperature=0.3,
+                max_tokens=300
+            )
+
+            # 解析LLM结果
+            llm_parts = llm_analysis.split('|')
+            if len(llm_parts) >= 4:
+                recommendation = llm_parts[0].strip()
+                confidence = llm_parts[1].strip()
+                risk = llm_parts[2].strip()
+                logic = llm_parts[3].strip()
+
+                # 增强基础结果
+                base_result["llm_analysis"] = {
+                    "recommendation": recommendation,
+                    "confidence": confidence,
+                    "risk": risk,
+                    "logic": logic,
+                    "raw_response": llm_analysis
+                }
+            else:
+                base_result["llm_analysis"] = {
+                    "raw_response": llm_analysis,
+                    "note": "LLM响应格式异常"
+                }
+
+        except Exception as e:
+            logger.error(f"LLM增强分析失败: {e}")
+            base_result["llm_analysis"] = {"error": str(e)}
+
+        return base_result

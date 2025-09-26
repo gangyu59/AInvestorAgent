@@ -20,7 +20,7 @@ from backend.storage import models
 # ==== 你的因子&评分 ====
 from backend.scoring.scorer import compute_factors, aggregate_score  # 无 mock 参数
 
-router = APIRouter(prefix="/api", tags=["analyze"])
+router = APIRouter(prefix="", tags=["analyze"])
 
 # ---------------------------
 # helpers
@@ -245,3 +245,39 @@ def generate_report(days: int = 7, db: Session = Depends(get_db)):
 
     md_txt = "\n".join(md) + "\n"
     return {"ok": True, "format": "markdown", "content": md_txt, "snapshot_id": snapshot_id}
+
+
+# 在现有 analyze.py 文件顶部的 imports 中添加
+from backend.agents.signal_researcher import EnhancedSignalResearcher
+import asyncio
+
+
+@router.post("/analyze/smart/{symbol}")
+async def smart_analyze_symbol(symbol: str):
+    """AI增强的股票分析"""
+    try:
+        # 模拟获取数据（你需要根据实际情况调整）
+        context = {
+            "symbol": symbol,
+            "prices": [100, 101, 102, 103, 104],  # 简化的价格数据
+            "fundamentals": {"pe": 25, "roe": 15},  # 简化的基本面数据
+            "news_raw": [
+                {"title": f"{symbol} Q4 earnings beat expectations", "summary": "Strong performance"},
+                {"title": f"{symbol} announces new product", "summary": "Innovation continues"}
+            ],
+            "mock": True  # 启用mock模式确保稳定运行
+        }
+
+        # 使用增强版分析器
+        researcher = EnhancedSignalResearcher()
+        result = await researcher.run_with_llm(context)
+
+        return {
+            "symbol": symbol,
+            "analysis": result,
+            "timestamp": datetime.now().isoformat(),
+            "version": "llm_enhanced_v1"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI分析失败: {str(e)}")
