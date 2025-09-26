@@ -52,39 +52,88 @@ export default function SimulatorPage() {
 
   async function fetchPriceSeries(symbol: string, opts: { limit?: number } = {}): Promise<PricePoint[]> {
     const days = Math.max(5, opts.limit || 520);
-    const url = PRICES(symbol, days); // 直接用你已有的常量函数
-    const r = await fetch(url, { method: "GET" });
-    if (!r.ok) throw new Error(`PRICES ${symbol} -> ${r.status}`);
-    // 兼容不同格式：期望 [{date, close}, ...]
-    const data = await r.json();
-    return Array.isArray(data) ? data : (data.series || data.data || []);
+    const url = PRICES(symbol, days); // 使用 endpoints.ts 中的 PRICES 函数
+
+    console.log(`DEBUG: 正在获取 ${symbol} 价格，URL: ${url}`); // 调试信息
+
+    try {
+      const r = await fetch(url, { method: "GET" });
+      if (!r.ok) {
+        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+      }
+
+      const data = await r.json();
+      console.log(`DEBUG: ${symbol} 价格数据:`, data); // 调试信息
+
+      // 根据你的 endpoints.ts 中的格式解析
+      if (data && data.items && Array.isArray(data.items)) {
+        const result = data.items.map((item: any) => ({
+        date: item.date,
+        close: +(item.close || 0),  // 使用 + 操作符转数字
+        open: +(item.open || item.close || 0),
+        high: +(item.high || item.close || 0),
+        low: +(item.low || item.close || 0),
+        volume: item.volume || 0
+      })).filter((x: any) => x.date && Number.isFinite(x.close));
+
+        console.log(`DEBUG: ${symbol} 解析后数据条数: ${result.length}`);
+        return result;
+      } else if (Array.isArray(data)) {
+        return data;
+      }
+
+      console.warn(`DEBUG: ${symbol} 数据格式不符合预期:`, data);
+      return [];
+    } catch (e) {
+      console.error(`获取 ${symbol} 价格失败:`, e);
+      return [];
+    }
   }
 
   async function run() {
+    console.log("DEBUG: 开始回测");
     setLoading(true);
     setErr(null);
     const sid = readSid();
     const symbols = pool.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
 
+    console.log("DEBUG: snapshot_id =", sid);
+    console.log("DEBUG: symbols =", symbols);
+
     try {
-      // ① 若 URL 带有 sid，优先以 snapshot_id 调后端
+      // 1) 如果有 sid，优先使用后端回测
       if (sid) {
-        const r = await apiRunBacktestBySnapshot(sid);
-        if (r && (r.nav?.length || r.benchmark_nav?.length)) {
-          setBt(r);
-          return;
+        console.log("DEBUG: 尝试使用 snapshot_id 回测");
+        try {
+          const r = await apiRunBacktestBySnapshot(sid);
+          console.log("DEBUG: snapshot 回测结果:", r);
+          if (r && (r.nav?.length || r.dates?.length)) {
+            setBt(r);
+            return;
+          }
+        } catch (e) {
+          console.warn("DEBUG: snapshot 回测失败:", e);
         }
       }
-      // ② 没有 sid 或服务端失败，则走前端等权兜底
-      const local = await localEqualWeightBacktest(symbols, fetchPriceSeries);
-      setBt(local);
-    } catch (e: any) {
-      try {
-        const local = await localEqualWeightBacktest(symbols, fetchPriceSeries);
-        setBt(local);
-      } catch (ee: any) {
-        setErr(ee?.message || "回测失败");
+
+      // 2) 前端等权重回测兜底
+      console.log("DEBUG: 开始前端等权重回测");
+      if (symbols.length === 0) {
+        setErr("请提供有效的股票代码");
+        return;
       }
+
+      const local = await localEqualWeightBacktest(symbols, fetchPriceSeries);
+      console.log("DEBUG: 前端回测结果:", local);
+
+      if (local.nav?.length) {
+        setBt(local);
+      } else {
+        setErr("回测未产生有效数据");
+      }
+    } catch (e: any) {
+      console.error("DEBUG: 回测总体失败:", e);
+      setErr(e?.message || "回测失败");
     } finally {
       setLoading(false);
     }
