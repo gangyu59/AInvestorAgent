@@ -8,6 +8,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from backend.agents.chair import ChairAgent
+from backend.agents.executor import ExecutorAgent
 from backend.agents.risk_manager import RiskManager
 from backend.agents.portfolio_manager import PortfolioManager
 from backend.agents.backtest_engineer import BacktestEngineer
@@ -311,38 +313,38 @@ def propose_backtest(req: ProposeBacktestReq):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/orchestrator/decide")
-def decide(req: DecideRequest):
-    trace = []
-    ctx = {}  # 贯穿上下文
-
-    # 1) Chair
-    from backend.agents.chair import ChairAgent
-    ch = ChairAgent().run({}, topk=req.topk, min_score=req.min_score)
-    trace.append({"agent":"chair","ok":ch["ok"],"meta":ch.get("meta",{})})
-    if not ch["ok"]:
-        return {"ok": False, "trace": trace, "context": ctx}
-    candidates = ch["data"]["candidates"]
-
-    # 2) PM/RM （沿用你现有 propose 逻辑）
-    pm_payload = {"candidates": candidates, "params": req.params or {}}
-    pm = propose_impl(pm_payload)  # 你已有的内部函数，返回 kept/concentration/actions
-    trace.extend(pm["trace"])
-    ctx.update(pm["context"] or {})
-    kept = ctx.get("kept", [])
-
-    # 3) Executor
-    from backend.agents.executor import ExecutorAgent
-    ex = ExecutorAgent().run(ctx, trading_cost=req.trading_cost or 0.001)
-    trace.append({"agent":"executor","ok":ex["ok"],"meta":ex.get("meta",{})})
-    orders = (ex["data"] or {}).get("orders", [])
-
-    # 可选：TraceRecord 落盘
-    try:
-        from backend.storage import db
-        tid = db.save_trace("decide", req.model_dump(), {"context": ctx, "trace": trace})
-        ctx["trace_id"] = tid
-    except Exception:
-        pass
-
-    return {"ok": True, "trace": trace, "context": {**ctx, "orders": orders}}
+# @router.post("/orchestrator/decide")
+# def decide(req: DecideRequest):
+#     trace = []
+#     ctx = {}  # 贯穿上下文
+#
+#     # 1) Chair
+#     from backend.agents.chair import ChairAgent
+#     ch = ChairAgent().run({}, topk=req.topk, min_score=req.min_score)
+#     trace.append({"agent":"chair","ok":ch["ok"],"meta":ch.get("meta",{})})
+#     if not ch["ok"]:
+#         return {"ok": False, "trace": trace, "context": ctx}
+#     candidates = ch["data"]["candidates"]
+#
+#     # 2) PM/RM （沿用你现有 propose 逻辑）
+#     pm_payload = {"candidates": candidates, "params": req.params or {}}
+#     pm = propose(ProposeReq(candidates=candidates, params=req.params or {}))
+#     trace.extend(pm["trace"])
+#     ctx.update(pm["context"] or {})
+#     kept = ctx.get("kept", [])
+#
+#     # 3) Executor
+#     from backend.agents.executor import ExecutorAgent
+#     ex = ExecutorAgent().run(ctx, trading_cost=req.trading_cost or 0.001)
+#     trace.append({"agent":"executor","ok":ex["ok"],"meta":ex.get("meta",{})})
+#     orders = (ex["data"] or {}).get("orders", [])
+#
+#     # 可选：TraceRecord 落盘
+#     try:
+#         from backend.storage import db
+#         tid = db.save_trace("decide", req.model_dump(), {"context": ctx, "trace": trace})
+#         ctx["trace_id"] = tid
+#     except Exception:
+#         pass
+#
+#     return {"ok": True, "trace": trace, "context": {**ctx, "orders": orders}}

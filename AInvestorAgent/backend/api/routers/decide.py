@@ -1,6 +1,6 @@
 # backend/api/routers/decide.py
 from __future__ import annotations
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
@@ -21,6 +21,11 @@ class DecideRequest(BaseModel):
     min_score: int = 60
     refresh_prices: bool = True
     use_llm: bool = True
+    params: Optional[Dict[str, Any]] = None
+    trading_cost: Optional[float] = 0.001
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class DecideResponse(BaseModel):
     as_of: str

@@ -9,9 +9,9 @@ from backend.storage.db import get_db
 from backend.storage.models import NewsRaw, NewsScore
 from backend.api.schemas.sentiment import SentimentBrief, SentimentPoint, NewsItem
 
-router = APIRouter(prefix="/api", tags=["sentiment"])
+router = APIRouter(prefix="/sentiment", tags=["sentiment"])
 
-@router.get("/sentiment/brief", response_model=SentimentBrief)
+@router.get("/brief", response_model=SentimentBrief)
 def get_sentiment_brief(
     symbols: str = Query(..., description="逗号分隔，如 AAPL,MSFT"),
     days: int = Query(14, ge=1, le=90, description="回看天数（1~90）"),

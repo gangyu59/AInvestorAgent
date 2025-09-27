@@ -38,12 +38,11 @@ export default function SimulatorPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        snapshot_id,
-        window: "1Y",
+        snapshot_id,           // 保留这个参数
+        window_days: 252,      // 改为 window_days 而不是 window: "1Y"
         trading_cost: 0.001,
-        rebalance: "weekly",
-        max_trades_per_week: 3,
-        benchmark_symbol: "SPY",
+        mock: false,           // 添加这个参数
+        benchmark_symbol: "SPY"
       }),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);

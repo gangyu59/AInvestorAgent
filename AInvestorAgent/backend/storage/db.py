@@ -39,3 +39,20 @@ def save_trace(scene: str, req: dict, result: dict) -> str:
 
 engine = get_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+from contextlib import contextmanager
+from backend.storage import models  # 添加这个导入
+
+@contextmanager
+def session_scope():
+    """提供数据库会话上下文管理器"""
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
