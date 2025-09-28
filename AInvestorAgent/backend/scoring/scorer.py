@@ -156,3 +156,155 @@ def build_portfolio(
         "items": [i.__dict__ for i in items],
         "meta": {"scheme": scheme, "alpha": alpha, "min_w": min_w, "max_w": max_w}
     }
+
+
+# === 因子有效性验证 (追加到现有 scorer.py) ===
+from scipy import stats
+import numpy as np
+
+
+def validate_factor_effectiveness(db: Session, symbols: List[str],
+                                  lookback_months: int = 12) -> Dict[str, Dict]:
+    """
+    验证因子有效性：计算 IC (Information Coefficient)
+    IC = 因子值与未来收益的相关性
+    """
+    from datetime import timedelta
+    import pandas as pd
+
+    results = {
+        'momentum': {'ic_series': [], 'ic_mean': 0.0, 'ic_std': 0.0, 'ic_ir': 0.0},
+        'sentiment': {'ic_series': [], 'ic_mean': 0.0, 'ic_std': 0.0, 'ic_ir': 0.0},
+        'overall_score': {'ic_series': [], 'ic_mean': 0.0, 'ic_std': 0.0, 'ic_ir': 0.0}
+    }
+
+    try:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=lookback_months * 30)
+
+        # 按月计算IC
+        current_date = start_date
+        while current_date < end_date:
+            next_month = current_date + timedelta(days=30)
+
+            # 获取当月因子值
+            factor_data = []
+            future_returns = []
+
+            for symbol in symbols:
+                # 当月因子
+                mom_factor = momentum_return(db, symbol, current_date, 60)
+                sent_factor = avg_sentiment_7d(db, symbol, current_date, 7)
+
+                # 未来1月收益
+                current_price = _last_close(db, symbol, current_date)
+                future_price = _last_close(db, symbol, next_month)
+
+                if all(x is not None for x in [mom_factor, sent_factor, current_price, future_price]):
+                    future_ret = (future_price / current_price) - 1.0
+
+                    # 计算综合分数
+                    row = FactorRow(symbol, None, None, mom_factor, sent_factor)
+                    scaled_mom = _minmax_scale([mom_factor])[0] or 0.5
+                    row.f_momentum = scaled_mom
+                    overall_score = aggregate_score(row)
+
+                    factor_data.append({
+                        'momentum': scaled_mom,
+                        'sentiment': sent_factor,
+                        'overall_score': overall_score / 100.0  # 归一化到0-1
+                    })
+                    future_returns.append(future_ret)
+
+            # 计算当月IC
+            if len(factor_data) >= 5:  # 至少5只股票
+                for factor_name in ['momentum', 'sentiment', 'overall_score']:
+                    factor_values = [d[factor_name] for d in factor_data]
+                    ic, p_value = stats.pearsonr(factor_values, future_returns)
+                    if not np.isnan(ic):
+                        results[factor_name]['ic_series'].append(ic)
+
+            current_date = next_month
+
+        # 计算统计指标
+        for factor_name in results:
+            ic_series = results[factor_name]['ic_series']
+            if ic_series:
+                results[factor_name]['ic_mean'] = float(np.mean(ic_series))
+                results[factor_name]['ic_std'] = float(np.std(ic_series))
+                results[factor_name]['ic_ir'] = (
+                    results[factor_name]['ic_mean'] / results[factor_name]['ic_std']
+                    if results[factor_name]['ic_std'] > 0 else 0.0
+                )
+                # 正IC占比
+                positive_rate = sum(1 for ic in ic_series if ic > 0) / len(ic_series)
+                results[factor_name]['positive_rate'] = positive_rate
+
+    except Exception as e:
+        print(f"因子有效性验证失败: {e}")
+
+    return results
+
+
+def get_portfolio_risk_metrics(db: Session, weights: List[Dict[str, Any]],
+                               asof: date) -> Dict[str, float]:
+    """
+    计算组合风险指标
+    """
+    from backend.factors.risk import calculate_risk_metrics, get_price_series
+
+    portfolio_metrics = {}
+
+    try:
+        total_weight = sum(w.get('weight', 0) for w in weights)
+        if total_weight <= 0:
+            return portfolio_metrics
+
+        # 获取各股票的历史收益率
+        all_returns = []
+        valid_weights = []
+
+        for w in weights:
+            symbol = w.get('symbol')
+            weight = w.get('weight', 0) / total_weight  # 归一化权重
+
+            if symbol and weight > 0:
+                df = get_price_series(db, symbol, asof, 252)
+                if len(df) >= 30:
+                    prices = df['close'].tolist()
+                    returns = [(prices[i] - prices[i - 1]) / prices[i - 1]
+                               for i in range(1, len(prices))]
+
+                    all_returns.append(np.array(returns) * weight)
+                    valid_weights.append(weight)
+
+        if all_returns:
+            # 计算组合收益率序列
+            min_length = min(len(r) for r in all_returns)
+            portfolio_returns = np.sum([r[:min_length] for r in all_returns], axis=0)
+
+            # 组合风险指标
+            portfolio_metrics['portfolio_volatility'] = float(np.std(portfolio_returns) * np.sqrt(252))
+            portfolio_metrics['portfolio_var_95'] = float(np.percentile(portfolio_returns, 5))
+            portfolio_metrics['portfolio_var_99'] = float(np.percentile(portfolio_returns, 1))
+
+            # 最大回撤（组合层面）
+            cumulative = np.cumprod(1 + portfolio_returns)
+            peak = np.maximum.accumulate(cumulative)
+            drawdown = (cumulative - peak) / peak
+            portfolio_metrics['portfolio_max_drawdown'] = float(np.min(drawdown))
+
+            # 夏普比率
+            excess_return = np.mean(portfolio_returns) * 252 - 0.02  # 假设无风险利率2%
+            portfolio_metrics['portfolio_sharpe'] = (
+                excess_return / portfolio_metrics['portfolio_volatility']
+                if portfolio_metrics['portfolio_volatility'] > 0 else 0.0
+            )
+
+            # 集中度风险
+            portfolio_metrics['concentration_risk'] = float(np.sum(np.array(valid_weights) ** 2))
+
+    except Exception as e:
+        print(f"组合风险指标计算失败: {e}")
+
+    return portfolio_metrics
