@@ -127,6 +127,113 @@ class LLMRouter:
 
         return results
 
+    async def analyze_stock_comprehensive(self, symbol: str,
+                                          factors: Dict[str, float],
+                                          fundamentals: Dict[str, any],
+                                          technical_indicators: Dict[str, float],
+                                          news_summary: str = "",
+                                          provider: LLMProvider = LLMProvider.DEEPSEEK) -> Dict[str, any]:
+        """综合分析股票"""
+
+        prompt = f"""作为专业股票分析师，请分析 {symbol}：
+
+基本面因子：
+- 价值因子: {factors.get('value', 0):.2f} (0-1，越高越便宜)
+- 质量因子: {factors.get('quality', 0):.2f} (0-1，越高质量越好)  
+- 动量因子: {factors.get('momentum', 0):.2f} (0-1，越高动能越强)
+- 情绪因子: {factors.get('sentiment', 0):.2f} (0-1，越高情绪越正面)
+
+技术指标：
+- RSI: {technical_indicators.get('rsi', 0):.1f}
+- 5日均线: {technical_indicators.get('ma5', 0):.2f}
+- 20日均线: {technical_indicators.get('ma20', 0):.2f}
+- 年化波动率: {technical_indicators.get('annual_volatility', 0):.1%}
+- 动量评分: {technical_indicators.get('momentum_score', 0):.2f}
+
+基本面数据：
+- PE比率: {fundamentals.get('pe', 'N/A')}
+- ROE: {fundamentals.get('roe', 'N/A')}%
+- 市值: {fundamentals.get('market_cap', 'N/A')}
+
+近期新闻摘要：
+{news_summary or '无相关新闻'}
+
+请提供：
+1. 投资建议(强烈买入/买入/持有/卖出/强烈卖出)
+2. 信心等级(1-10)
+3. 关键风险点(最多2点)
+4. 投资逻辑(1句话概括)
+
+格式: 建议|信心|风险|逻辑"""
+
+        try:
+            response = await self.call_llm(
+                prompt=prompt,
+                provider=provider,
+                temperature=0.3,
+                max_tokens=400
+            )
+
+            # 解析响应
+            parts = response.replace('｜', '|').split('|')
+            if len(parts) >= 4:
+                return {
+                    "recommendation": parts[0].strip(),
+                    "confidence": parts[1].strip(),
+                    "risks": parts[2].strip(),
+                    "logic": parts[3].strip(),
+                    "raw_response": response
+                }
+            else:
+                return {
+                    "raw_response": response,
+                    "note": "LLM响应格式需要调整"
+                }
+
+        except Exception as e:
+            logger.error(f"综合分析失败: {e}")
+            return {"error": str(e)}
+
+    async def generate_portfolio_reasoning(self,
+                                           analyses: Dict[str, Dict],
+                                           selected_symbols: List[str],
+                                           provider: LLMProvider = LLMProvider.DOUBAO) -> str:
+        """生成组合选择理由"""
+
+        summary_parts = []
+        for symbol in selected_symbols:
+            analysis = analyses.get(symbol, {})
+            factors = analysis.get("factors", {})
+            llm_analysis = analysis.get("llm_analysis", {})
+
+            summary_parts.append(f"""
+{symbol}: 评分{analysis.get('score', 0)}, 建议{llm_analysis.get('recommendation', 'N/A')}
+因子: 价值{factors.get('value', 0):.2f} 质量{factors.get('quality', 0):.2f} 动量{factors.get('momentum', 0):.2f}
+逻辑: {llm_analysis.get('logic', '数据驱动选择')}""")
+
+        analysis_text = "\n".join(summary_parts)
+
+        prompt = f"""作为投资组合经理，基于以下分析解释组合构建逻辑：
+
+选中股票分析：
+{analysis_text}
+
+请用1-2句话概括选择这些股票的核心逻辑，重点说明：
+1. 选择标准
+2. 风险考虑
+3. 预期表现"""
+
+        try:
+            reasoning = await self.call_llm(
+                prompt=prompt,
+                provider=provider,
+                temperature=0.4,
+                max_tokens=200
+            )
+            return reasoning.strip()
+        except Exception as e:
+            logger.error(f"组合理由生成失败: {e}")
+            return f"基于多因子模型选择评分最高的{len(selected_symbols)}只股票，兼顾价值、质量、动量和情绪因子。"
 
 # 全局单例
 llm_router = LLMRouter()

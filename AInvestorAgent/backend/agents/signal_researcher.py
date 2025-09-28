@@ -243,3 +243,110 @@ class EnhancedSignalResearcher(SignalResearcher):
             base_result["llm_analysis"] = {"error": str(e)}
 
         return base_result
+
+
+        async def analyze_with_technical_indicators(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+            """带技术指标增强的分析"""
+            # 先执行基础分析
+            base_result = self.run(ctx)
+
+            if not base_result.get("ok"):
+                return base_result
+
+            try:
+                symbol = ctx.get("symbol", "UNKNOWN")
+
+                # 获取技术指标（如果ctx中有数据库会话）
+                technical_indicators = {}
+                if "db_session" in ctx:
+                    from backend.factors.momentum import calculate_technical_indicators
+                    from backend.factors.risk import calculate_risk_metrics
+                    from datetime import date
+
+                    db = ctx["db_session"]
+                    asof = ctx.get("asof", date.today())
+
+                    technical_indicators = calculate_technical_indicators(db, symbol, asof)
+                    risk_metrics = calculate_risk_metrics(db, symbol, asof)
+                    technical_indicators.update(risk_metrics)
+
+                # 准备LLM分析
+                factors = base_result.get("factors", {})
+                fundamentals = ctx.get("fundamentals", {})
+                news_raw = ctx.get("news_raw", [])
+
+                # 构建新闻摘要
+                news_summary = ""
+                if news_raw:
+                    news_texts = [f"{item.get('title', '')}: {item.get('summary', '')}"
+                                  for item in news_raw[:3]]  # 最近3条新闻
+                    news_summary = "\n".join(news_texts)
+
+                # 调用增强的LLM分析
+                from backend.sentiment.llm_router import llm_router, LLMProvider
+                llm_analysis = await llm_router.analyze_stock_comprehensive(
+                    symbol=symbol,
+                    factors=factors,
+                    fundamentals=fundamentals,
+                    technical_indicators=technical_indicators,
+                    news_summary=news_summary,
+                    provider=LLMProvider.DEEPSEEK
+                )
+
+                # 合并结果
+                base_result["technical_indicators"] = technical_indicators
+                base_result["llm_analysis"] = llm_analysis
+
+                # 根据技术指标调整评分
+                if technical_indicators:
+                    technical_score = self._calculate_technical_score(technical_indicators)
+                    original_score = base_result.get("score", 0)
+                    # 技术指标权重20%
+                    adjusted_score = original_score * 0.8 + technical_score * 0.2
+                    base_result["adjusted_score"] = round(adjusted_score)
+                    base_result["technical_score"] = technical_score
+
+            except Exception as e:
+                logger.error(f"技术指标增强分析失败: {e}")
+                base_result["technical_error"] = str(e)
+
+            return base_result
+
+        def _calculate_technical_score(self, indicators: Dict[str, float]) -> float:
+            """基于技术指标计算评分"""
+            score = 50.0  # 基础分数
+
+            try:
+                # RSI评分
+                rsi = indicators.get('rsi', 50)
+                if 30 <= rsi <= 70:  # 中性区间
+                    score += 10
+                elif rsi < 30:  # 超卖，加分
+                    score += 20
+                elif rsi > 80:  # 超买，减分
+                    score -= 15
+
+                # 均线趋势评分
+                ma5 = indicators.get('ma5', 0)
+                ma20 = indicators.get('ma20', 0)
+                if ma5 > 0 and ma20 > 0:
+                    if ma5 > ma20:  # 短期均线在长期均线之上
+                        score += 15
+                    else:
+                        score -= 10
+
+                # 动量评分
+                momentum_score = indicators.get('momentum_score', 0)
+                score += momentum_score * 20  # 动量因子贡献
+
+                # 风险调整
+                volatility = indicators.get('annual_volatility', 0.2)
+                if volatility > 0.4:  # 高波动率，减分
+                    score -= 10
+                elif volatility < 0.15:  # 低波动率，加分
+                    score += 5
+
+            except Exception as e:
+                logger.error(f"技术评分计算失败: {e}")
+
+            return max(0, min(100, score))

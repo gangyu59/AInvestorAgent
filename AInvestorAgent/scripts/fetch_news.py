@@ -21,10 +21,14 @@ import json, socket, ssl
 from urllib.parse import urlencode
 import time
 
-# ---- 让 backend.* 可 import ----
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
