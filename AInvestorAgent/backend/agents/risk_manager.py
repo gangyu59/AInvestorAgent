@@ -1,4 +1,4 @@
-# backend/agents/risk_manager.py
+# backend/agents/risk_manager.py - 完整版本
 from __future__ import annotations
 from typing import Dict, Any, List
 from collections import defaultdict
@@ -22,9 +22,7 @@ class RiskManager:
             "count_range": tuple(ctx.get("risk.count_range", (5, 15))),
         }
 
-    # 替换整个 act 方法
-    def act(self, *, weights: List[Dict[str, Any]], max_weight: float = 0.30, max_sector: float = 0.50) -> Dict[
-        str, Any]:
+    def act(self, *, weights: List[Dict[str, Any]], max_weight: float = 0.30, max_sector: float = 0.50) -> Dict[str, Any]:
         """
         便捷风控：接受权重列表与阈值，复用 run(ctx) 的完整风控逻辑。
         - weights: [{"symbol": "...", "weight": 0.5, ("sector": "...")}, ...]
@@ -48,7 +46,6 @@ class RiskManager:
         # 单测期望 dict: {symbol: weight}
         mapped = {w["symbol"]: float(w["weight"]) for w in kept}
         return {"ok": True, "weights": mapped}
-
 
     def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
         risk = self._norm_params(ctx)
@@ -122,7 +119,7 @@ class RiskManager:
                 capped_sector_total[sec] = tot
                 keepers_total += tot
 
-        # 4.3 把“被削掉的权重”按照未超限行业的原始占比重新分配到它们
+        # 4.3 把"被削掉的权重"按照未超限行业的原始占比重新分配到它们
         if removed > 1e-12 and keepers_total > 1e-12:
             for sec, tot in sector_totals.items():
                 if tot <= max_sec:
@@ -130,7 +127,7 @@ class RiskManager:
                     capped_sector_total[sec] += removed * share
         # （如果所有行业都超限或只有一个行业，removed 会为 0 或 keepers_total=0，直接跳过即可）
 
-        # 4.4 按“目标行业总权重”把行业内的股票等比缩放
+        # 4.4 按"目标行业总权重"把行业内的股票等比缩放
         adjusted: List[Dict[str, Any]] = []
         for sec, stocks in sector_to_stocks.items():
             base = sum(s["weight"] for s in stocks) or 1.0
@@ -139,7 +136,7 @@ class RiskManager:
                 share = s["weight"] / base
                 adjusted.append({"symbol": s["symbol"], "sector": sec, "weight": target_sec_sum * share})
 
-        # --- 5) 只对“未被行业 Cap 的部分”做全局归一化（不会把被 Cap 的行业又抬回去） ---
+        # --- 5) 只对"未被行业 Cap 的部分"做全局归一化（不会把被 Cap 的行业又抬回去） ---
         # 实际上 4.4 已经把每个行业精确分配到目标和；这里仅防数值误差统一归一
         total = sum(x["weight"] for x in adjusted) or 1.0
         kept = [{"symbol": x["symbol"], "sector": x["sector"], "weight": x["weight"] / total} for x in adjusted]
@@ -161,3 +158,6 @@ class RiskManager:
                 "actions": actions,
             },
         }
+
+# 确保可以被正确导入
+__all__ = ['RiskManager']

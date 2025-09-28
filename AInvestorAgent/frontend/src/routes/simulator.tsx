@@ -1,4 +1,4 @@
-// frontend/src/routes/simulator.tsx
+// 完整修复后的 simulator.tsx
 import { useEffect, useState, useRef } from "react";
 import { BACKTEST_RUN, PRICES } from "../services/endpoints";
 
@@ -38,10 +38,10 @@ export default function SimulatorPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        snapshot_id,           // 保留这个参数
-        window_days: 252,      // 改为 window_days 而不是 window: "1Y"
+        snapshot_id,
+        window_days: 252,
         trading_cost: 0.001,
-        mock: false,           // 添加这个参数
+        mock: false,
         benchmark_symbol: "SPY"
       }),
     });
@@ -51,9 +51,7 @@ export default function SimulatorPage() {
 
   async function fetchPriceSeries(symbol: string, opts: { limit?: number } = {}): Promise<PricePoint[]> {
     const days = Math.max(5, opts.limit || 520);
-    const url = PRICES(symbol, days); // 使用 endpoints.ts 中的 PRICES 函数
-
-    console.log(`DEBUG: 正在获取 ${symbol} 价格，URL: ${url}`); // 调试信息
+    const url = PRICES(symbol, days);
 
     try {
       const r = await fetch(url, { method: "GET" });
@@ -62,26 +60,19 @@ export default function SimulatorPage() {
       }
 
       const data = await r.json();
-      console.log(`DEBUG: ${symbol} 价格数据:`, data); // 调试信息
-
-      // 根据你的 endpoints.ts 中的格式解析
       if (data && data.items && Array.isArray(data.items)) {
         const result = data.items.map((item: any) => ({
-        date: item.date,
-        close: +(item.close || 0),  // 使用 + 操作符转数字
-        open: +(item.open || item.close || 0),
-        high: +(item.high || item.close || 0),
-        low: +(item.low || item.close || 0),
-        volume: item.volume || 0
-      })).filter((x: any) => x.date && Number.isFinite(x.close));
-
-        console.log(`DEBUG: ${symbol} 解析后数据条数: ${result.length}`);
+          date: item.date,
+          close: +(item.close || 0),
+          open: +(item.open || item.close || 0),
+          high: +(item.high || item.close || 0),
+          low: +(item.low || item.close || 0),
+          volume: item.volume || 0
+        })).filter((x: any) => x.date && Number.isFinite(x.close));
         return result;
       } else if (Array.isArray(data)) {
         return data;
       }
-
-      console.warn(`DEBUG: ${symbol} 数据格式不符合预期:`, data);
       return [];
     } catch (e) {
       console.error(`获取 ${symbol} 价格失败:`, e);
@@ -89,10 +80,12 @@ export default function SimulatorPage() {
     }
   }
 
+  // 修复后的 run 函数：移除 localStorage 检查，避免重复逻辑
   async function run() {
     console.log("DEBUG: 开始回测");
     setLoading(true);
     setErr(null);
+
     const sid = readSid();
     const symbols = pool.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
 
@@ -187,12 +180,48 @@ export default function SimulatorPage() {
     a.remove();
   }
 
-  useEffect(() => { void run(); /* mount 一次 */ }, []);
+  // 在 SimulatorPage 组件中添加一个 ref 来防止重复执行
+  const hasProcessed = useRef(false);
+
+  useEffect(() => {
+    if (hasProcessed.current) return; // 防止重复执行
+
+    const urlParams = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    const fromBacktest = urlParams.get('from') === 'backtest';
+
+    if (fromBacktest) {
+      if (window.latestBacktestData) {
+        console.log("DEBUG: 使用全局变量数据:", window.latestBacktestData);
+        setBt(window.latestBacktestData);
+        delete window.latestBacktestData;
+        hasProcessed.current = true; // 标记已处理
+        return;
+      }
+
+      console.warn("DEBUG: 全局变量中没有数据，调用 run()");
+      void run();
+      hasProcessed.current = true; // 标记已处理
+    }
+  }, []);
+
 
   return (
     <div className="page">
+      {/* 修复：合并重复的页面头部 */}
       <div className="page-header" style={{gap: 8}}>
         <h2>回测与模拟</h2>
+
+        {/* 临时调试按钮 */}
+        <button
+          className="btn"
+          onClick={() => {
+            console.log("localStorage 内容:", localStorage.getItem('latestBacktestResult'));
+            console.log("当前 bt 状态:", bt);
+          }}
+        >
+          调试检查
+        </button>
+
         <input
           defaultValue={pool}
           onBlur={(e) => setPool(e.currentTarget.value)}
@@ -258,9 +287,7 @@ export default function SimulatorPage() {
   );
 }
 
-/* ------------------------------
-   前端兜底：等权组合回测（与你原逻辑一致）
--------------------------------- */
+/* 其余辅助函数保持不变 */
 async function localEqualWeightBacktest(
   symbols: string[],
   fetchPriceSeriesFn: (s: string, opts?: {limit?: number}) => Promise<PricePoint[]>
@@ -339,7 +366,6 @@ function calcMetricsFromNav(nav: number[], rets: number[]) {
   return { ann_return, mdd, sharpe };
 }
 
-/* ---------------- UI：简洁 NAV 图 ---------------- */
 function NavChart({ bt }: { bt: BacktestResponse }) {
   const W = 940, H = 260, P = 24;
   const nav = bt.nav || [];
@@ -364,9 +390,7 @@ function NavChart({ bt }: { bt: BacktestResponse }) {
 
   return (
     <svg width={W} height={H} style={{ display: "block" }}>
-      {/* 组合 NAV：蓝色 */}
       <path d={path(nav)} fill="none" stroke={NAV_COLOR} strokeWidth={2} />
-      {/* 基准 NAV：黄色 */}
       {bn.length > 0 && (
         <path d={path(bn)} fill="none" stroke={BM_COLOR} strokeWidth={1.5} strokeOpacity={0.9} />
       )}

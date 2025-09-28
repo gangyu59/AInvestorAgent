@@ -770,5 +770,5 @@ select{
 
 /* 强制修复顶部遮挡问题 */
 .dashboard-content {
-  padding-top: 150px !important;
+  padding-top: 80px !important;
 }

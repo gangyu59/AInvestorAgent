@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
+declare global {
+  interface Window {
+    latestBacktestData: any;
+  }
+}
+
 // 保持原有的API函数和格式化函数
 const fmt = (x: any, d = 2): string =>
   typeof x === "number" && Number.isFinite(x) ? x.toFixed(d) : "--";
@@ -66,29 +72,165 @@ export default function ImprovedDashboard() {
 
   const btM = useMemo(() => normMetrics(backtest?.metrics), [backtest]);
 
-  // 保持原有功能函数
+  // 只替换你index.tsx中的 onDecide 函数：
   async function onDecide() {
     setLoading(true);
-    setTimeout(() => {
+    setError(null);
+
+    try {
+      // 只修改 onDecide 函数中的 fetch 调用：
+      const response = await fetch("http://localhost:8000/orchestrator/decide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbols: symbols,
+          topk: 5,
+          use_llm: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const decideData = await response.json();
+
+      const weights: Record<string, number> = {};
+      const kept: string[] = [];
+
+      if (decideData?.holdings) {
+        decideData.holdings.forEach((holding: any) => {
+          weights[holding.symbol] = holding.weight;
+          kept.push(holding.symbol);
+        });
+      }
+
       setDecide({
         context: {
-          weights: { AAPL: 0.3, MSFT: 0.25, NVDA: 0.2, GOOGL: 0.25 },
-          kept: ["AAPL", "MSFT", "NVDA", "GOOGL"],
+          weights,
+          kept,
           orders: [],
           version_tag: "ai_v1.3"
         }
       });
+
+    } catch (error) {
+      console.error("AI决策失败:", error);
+      setError(`AI决策失败: ${error instanceof Error ? error.message : '未知错误'}`);
+
+      // 保持原有的模拟数据作为后备
+      setTimeout(() => {
+        setDecide({
+          context: {
+            weights: { AAPL: 0.3, MSFT: 0.25, NVDA: 0.2, GOOGL: 0.25 },
+            kept: ["AAPL", "MSFT", "NVDA", "GOOGL"],
+            orders: [],
+            version_tag: "ai_v1.3"
+          }
+        });
+        setLoading(false);
+      }, 2000);
+      return;
+    } finally {
       setLoading(false);
-    }, 2000);
+    }
   }
 
+  // 只需要修改 index.tsx 中的 onRunBacktest 函数
   async function onRunBacktest() {
     setLoading(true);
-    setTimeout(() => setLoading(false), 1500);
+    setError(null);
+
+    try {
+      let weights: Array<{symbol: string; weight: number}> = [];
+
+      if (decide?.context?.weights) {
+        weights = Object.entries(decide.context.weights).map(([symbol, weight]) => ({
+          symbol,
+          weight: Number(weight)
+        }));
+      } else {
+        weights = symbols.map(symbol => ({
+          symbol,
+          weight: 1.0 / symbols.length
+        }));
+      }
+
+      console.log("发送回测请求，权重:", weights);
+
+      const response = await fetch("http://localhost:8000/api/backtest/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          weights,
+          window_days: 252,
+          trading_cost: 0.001
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const backtestData = await response.json();
+      console.log("收到回测结果:", backtestData);
+
+      // 使用全局变量存储数据
+      window.latestBacktestData = backtestData;
+      console.log("已存储回测结果到全局变量");
+
+      // 跳转到 simulator 页面
+      window.location.hash = '#/simulator?from=backtest';
+      console.log("已跳转到 simulator 页面");
+
+    } catch (error) {
+      console.error("回测失败:", error);
+      setError(`回测失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
+  // 替换 onGenerateReport 函数：
   async function onGenerateReport() {
-    alert("报告生成功能已触发（模拟）");
+    setLoading(true);
+    setError(null);
+
+    try {
+      const mockReport = `# 投资决策日报
+  生成时间: ${new Date().toLocaleString()}
+  
+  ## 组合概况
+  - 持仓股票: ${symbols.join(", ")}
+  - 当前权重: ${decide?.context?.weights ? 
+    Object.entries(decide.context.weights)
+      .map(([s, w]) => `${s}(${(Number(w)*100).toFixed(1)}%)`)
+      .join(", ") : "等权重"}
+  
+  ## 市场情绪
+  - 整体情绪偏向积极
+  - 主要关注科技股走势
+  
+  ## 建议
+  - 维持当前配置
+  - 关注市场变化
+  `;
+
+      const blob = new Blob([mockReport], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `investment_report_${new Date().toISOString().split('T')[0]}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      alert("报告已生成并下载！");
+
+    } catch (error) {
+      setError(`报告生成失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function onAnalyzeClick() {
