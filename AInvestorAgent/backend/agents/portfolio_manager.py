@@ -44,6 +44,9 @@ class EnhancedPortfolioManager(PortfolioManager):
 
     async def smart_allocate(self, analyses: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """使用LLM进行智能资产配置"""
+
+        from backend.sentiment.llm_router import llm_router, LLMProvider
+
         try:
             # 构建分析摘要
             summary_parts = []
@@ -75,10 +78,9 @@ class EnhancedPortfolioManager(PortfolioManager):
 股票代码:权重%,股票代码:权重%,...
 理由：简述选择逻辑"""
 
-            from backend.sentiment.llm_router import llm_router, LLMProvider
             llm_response = await llm_router.call_llm(
                 prompt=prompt,
-                provider=LLMProvider.DOUBAO,  # 用豆包做组合决策
+                provider=LLMProvider.DEEPSEEK,  # 使用 DEEPSEEK
                 temperature=0.2,
                 max_tokens=500
             )

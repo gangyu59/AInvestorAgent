@@ -158,6 +158,8 @@ class SignalResearcher:
                     "score": round(100.0 * (0.25 * n(13) + 0.25 * n(37) + 0.30 * n(59) + 0.20 * n(71)))}
 
 
+# backend/agents/signal_researcher.py
+
 class EnhancedSignalResearcher(SignalResearcher):
     """增强版信号研究员，支持LLM分析"""
 
@@ -220,7 +222,7 @@ class EnhancedSignalResearcher(SignalResearcher):
                 max_tokens=300
             )
 
-            # 解析LLM结果（更稳健：兼容全角“｜”，并限制最多分成4段）
+            # 解析LLM结果（更稳健：兼容全角"｜"，并限制最多分成4段）
             text = (llm_analysis or "").replace('｜', '|')
             parts = [p.strip() for p in text.split('|', maxsplit=3)]
             if len(parts) >= 4:
@@ -244,109 +246,141 @@ class EnhancedSignalResearcher(SignalResearcher):
 
         return base_result
 
+    # 注意：这里应该是类的方法，不要缩进在上面的方法内部
+    async def analyze_with_technical_indicators(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """带技术指标增强的分析"""
+        # 先执行基础分析
+        base_result = self.run(ctx)
 
-        async def analyze_with_technical_indicators(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
-            """带技术指标增强的分析"""
-            # 先执行基础分析
-            base_result = self.run(ctx)
-
-            if not base_result.get("ok"):
-                return base_result
-
-            try:
-                symbol = ctx.get("symbol", "UNKNOWN")
-
-                # 获取技术指标（如果ctx中有数据库会话）
-                technical_indicators = {}
-                if "db_session" in ctx:
-                    from backend.factors.momentum import calculate_technical_indicators
-                    from backend.factors.risk import calculate_risk_metrics
-                    from datetime import date
-
-                    db = ctx["db_session"]
-                    asof = ctx.get("asof", date.today())
-
-                    technical_indicators = calculate_technical_indicators(db, symbol, asof)
-                    risk_metrics = calculate_risk_metrics(db, symbol, asof)
-                    technical_indicators.update(risk_metrics)
-
-                # 准备LLM分析
-                factors = base_result.get("factors", {})
-                fundamentals = ctx.get("fundamentals", {})
-                news_raw = ctx.get("news_raw", [])
-
-                # 构建新闻摘要
-                news_summary = ""
-                if news_raw:
-                    news_texts = [f"{item.get('title', '')}: {item.get('summary', '')}"
-                                  for item in news_raw[:3]]  # 最近3条新闻
-                    news_summary = "\n".join(news_texts)
-
-                # 调用增强的LLM分析
-                from backend.sentiment.llm_router import llm_router, LLMProvider
-                llm_analysis = await llm_router.analyze_stock_comprehensive(
-                    symbol=symbol,
-                    factors=factors,
-                    fundamentals=fundamentals,
-                    technical_indicators=technical_indicators,
-                    news_summary=news_summary,
-                    provider=LLMProvider.DEEPSEEK
-                )
-
-                # 合并结果
-                base_result["technical_indicators"] = technical_indicators
-                base_result["llm_analysis"] = llm_analysis
-
-                # 根据技术指标调整评分
-                if technical_indicators:
-                    technical_score = self._calculate_technical_score(technical_indicators)
-                    original_score = base_result.get("score", 0)
-                    # 技术指标权重20%
-                    adjusted_score = original_score * 0.8 + technical_score * 0.2
-                    base_result["adjusted_score"] = round(adjusted_score)
-                    base_result["technical_score"] = technical_score
-
-            except Exception as e:
-                logger.error(f"技术指标增强分析失败: {e}")
-                base_result["technical_error"] = str(e)
-
+        if not base_result.get("ok"):
             return base_result
 
-        def _calculate_technical_score(self, indicators: Dict[str, float]) -> float:
-            """基于技术指标计算评分"""
-            score = 50.0  # 基础分数
+        try:
+            symbol = ctx.get("symbol", "UNKNOWN")
 
-            try:
-                # RSI评分
-                rsi = indicators.get('rsi', 50)
-                if 30 <= rsi <= 70:  # 中性区间
-                    score += 10
-                elif rsi < 30:  # 超卖，加分
-                    score += 20
-                elif rsi > 80:  # 超买，减分
-                    score -= 15
+            # 获取技术指标
+            technical_indicators = {}
+            if "db_session" in ctx:
+                from backend.factors.momentum import calculate_technical_indicators
+                from backend.factors.risk import calculate_risk_metrics
+                from datetime import date
 
-                # 均线趋势评分
-                ma5 = indicators.get('ma5', 0)
-                ma20 = indicators.get('ma20', 0)
-                if ma5 > 0 and ma20 > 0:
-                    if ma5 > ma20:  # 短期均线在长期均线之上
-                        score += 15
-                    else:
-                        score -= 10
+                db = ctx["db_session"]
+                asof = ctx.get("asof", date.today())
 
-                # 动量评分
-                momentum_score = indicators.get('momentum_score', 0)
-                score += momentum_score * 20  # 动量因子贡献
+                technical_indicators = calculate_technical_indicators(db, symbol, asof)
+                risk_metrics = calculate_risk_metrics(db, symbol, asof)
+                technical_indicators.update(risk_metrics)
 
-                # 风险调整
-                volatility = indicators.get('annual_volatility', 0.2)
-                if volatility > 0.4:  # 高波动率，减分
+            # 准备LLM分析
+            factors = base_result.get("factors", {})
+            fundamentals = ctx.get("fundamentals", {})
+            news_raw = ctx.get("news_raw", [])
+
+            # 构建新闻摘要
+            news_summary = ""
+            if news_raw:
+                news_texts = [f"{item.get('title', '')}: {item.get('summary', '')}"
+                              for item in news_raw[:3]]
+                news_summary = "\n".join(news_texts)
+
+            # 调用LLM分析
+            from backend.sentiment.llm_router import llm_router, LLMProvider
+
+            # 构建分析提示
+            prompt = f"""作为专业股票分析师，分析 {symbol}：
+
+基本面因子：
+- 价值: {factors.get('value', 0):.2f} 质量: {factors.get('quality', 0):.2f} 
+- 动量: {factors.get('momentum', 0):.2f} 情绪: {factors.get('sentiment', 0):.2f}
+
+技术指标：
+- RSI: {technical_indicators.get('rsi', 0):.1f}
+- MA5/MA20: {technical_indicators.get('ma5', 0):.1f}/{technical_indicators.get('ma20', 0):.1f}
+- 年化波动率: {technical_indicators.get('annual_volatility', 0) * 100:.1f}%
+- 动量评分: {technical_indicators.get('momentum_score', 0):.2f}
+
+基本面：PE={fundamentals.get('pe', 'N/A')} ROE={fundamentals.get('roe', 'N/A')}%
+
+新闻摘要：{news_summary or '无重要新闻'}
+
+请给出：建议|信心(1-10)|风险|逻辑"""
+
+            llm_analysis = await llm_router.call_llm(
+                prompt=prompt,
+                provider=LLMProvider.DEEPSEEK,
+                temperature=0.3,
+                max_tokens=300
+            )
+
+            # 解析LLM结果
+            parts = llm_analysis.replace('｜', '|').split('|')
+            if len(parts) >= 4:
+                base_result["llm_analysis"] = {
+                    "recommendation": parts[0].strip(),
+                    "confidence": parts[1].strip(),
+                    "risks": parts[2].strip(),
+                    "logic": parts[3].strip(),
+                    "raw_response": llm_analysis
+                }
+            else:
+                base_result["llm_analysis"] = {
+                    "raw_response": llm_analysis,
+                    "note": "需要解析调整"
+                }
+
+            # 技术指标增强评分
+            base_result["technical_indicators"] = technical_indicators
+
+            if technical_indicators:
+                tech_score = self._calculate_technical_score(technical_indicators)
+                original_score = base_result.get("score", 0)
+                # 技术指标权重20%
+                adjusted_score = original_score * 0.8 + tech_score * 0.2
+                base_result["adjusted_score"] = round(adjusted_score)
+                base_result["technical_score"] = tech_score
+
+        except Exception as e:
+            logger.error(f"技术指标增强分析失败: {e}")
+            base_result["technical_error"] = str(e)
+
+        return base_result
+
+    def _calculate_technical_score(self, indicators: Dict[str, float]) -> float:
+        """基于技术指标计算评分"""
+        score = 50.0
+
+        try:
+            # RSI评分
+            rsi = indicators.get('rsi', 50)
+            if 30 <= rsi <= 70:
+                score += 10
+            elif rsi < 30:  # 超卖
+                score += 20
+            elif rsi > 80:  # 超买
+                score -= 15
+
+            # 均线趋势
+            ma5 = indicators.get('ma5', 0)
+            ma20 = indicators.get('ma20', 0)
+            if ma5 > 0 and ma20 > 0:
+                if ma5 > ma20:
+                    score += 15
+                else:
                     score -= 10
-                elif volatility < 0.15:  # 低波动率，加分
-                    score += 5
 
-            except Exception as e:
-                logger.error(f"技术评分计算失败: {e}")
+            # 动量评分
+            momentum_score = indicators.get('momentum_score', 0)
+            score += momentum_score * 20
 
-            return max(0, min(100, score))
+            # 风险调整
+            volatility = indicators.get('annual_volatility', 0.2)
+            if volatility > 0.4:
+                score -= 10
+            elif volatility < 0.15:
+                score += 5
+
+        except Exception as e:
+            logger.error(f"技术评分计算失败: {e}")
+
+        return max(0, min(100, score))

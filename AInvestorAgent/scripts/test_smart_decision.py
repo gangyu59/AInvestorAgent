@@ -1,54 +1,95 @@
-# scripts/test_smart_decision.py
-import asyncio
+#!/usr/bin/env python3
 import sys
-import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-# 手动加载 .env 文件
-ROOT_DIR = Path(__file__).resolve().parents[1]
-ENV_FILE = ROOT_DIR / ".env"
-if ENV_FILE.exists():
-    load_dotenv(ENV_FILE, override=True)
-    print(f"已加载环境变量文件: {ENV_FILE}")
+# 添加后端路径
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 加载环境变量
+try:
+    from dotenv import load_dotenv
 
-from backend.api.routers.decide import decide_now, DecideRequest
+    load_dotenv()
+except Exception:
+    pass
+
+import asyncio
+from backend.storage.db import SessionLocal
+from backend.agents.signal_researcher import EnhancedSignalResearcher
+from backend.agents.portfolio_manager import EnhancedPortfolioManager
+from datetime import date
 
 
 async def test_smart_decision():
-    """测试智能决策系统"""
-    print("🔄 测试智能决策系统...")
+    """测试智能决策流程"""
+    symbols = ["AAPL", "MSFT", "TSLA", "NVDA"]
 
-    # 检查环境变量是否正确加载
-    print(f"DEEPSEEK_API_KEY: {'已设置' if os.getenv('DEEPSEEK_API_KEY') else '未设置'}")
-    print(f"DOUBAO_API_KEY: {'已设置' if os.getenv('DOUBAO_API_KEY') else '未设置'}")
+    print("=== 开始智能股票分析 ===")
 
-    request = DecideRequest(
-        symbols=["AAPL", "MSFT", "NVDA"],
-        topk=3,
-        min_score=50,
-        refresh_prices=False,
-        use_llm=True
-    )
+    with SessionLocal() as db:
+        # 第一步：分析每只股票
+        analyses = {}
+        researcher = EnhancedSignalResearcher()
 
-    try:
-        result = await decide_now(request)
-        print(f"✅ 智能决策成功!")
-        print(f"   方法: {result.method}")
-        print(f"   选中: {len(result.holdings)} 只股票")
+        for symbol in symbols:
+            print(f"\n分析 {symbol}...")
 
-        if result.reasoning:
-            print(f"   AI理由: {result.reasoning}")
+            ctx = {
+                "symbol": symbol,
+                "db_session": db,
+                "asof": date.today(),
+                "fundamentals": {"pe": 25, "roe": 15},  # 模拟基本面数据
+                "news_raw": [{"title": f"{symbol}季度业绩超预期", "summary": "公司表现强劲"}]
+            }
 
-        for holding in result.holdings:
-            print(f"   {holding['symbol']}: {holding['weight'] * 100:.1f}%")
+            try:
+                analysis = await researcher.analyze_with_technical_indicators(ctx)
+                analyses[symbol] = analysis
 
-    except Exception as e:
-        print(f"❌ 智能决策失败: {e}")
-        import traceback
-        traceback.print_exc()
+                # 显示分析结果
+                if analysis.get("ok"):
+                    print(f"  综合评分: {analysis.get('adjusted_score', analysis.get('score', 0))}")
+
+                    tech = analysis.get("technical_indicators", {})
+                    print(
+                        f"  技术指标: RSI={tech.get('rsi', 0):.1f} MA趋势={'上升' if tech.get('ma5', 0) > tech.get('ma20', 0) else '下降'}")
+
+                    llm = analysis.get("llm_analysis", {})
+                    print(f"  AI建议: {llm.get('recommendation', 'N/A')} (信心:{llm.get('confidence', 'N/A')})")
+                    print(f"  投资逻辑: {llm.get('logic', 'N/A')}")
+                else:
+                    print(f"  分析失败: {analysis}")
+
+            except Exception as e:
+                print(f"  错误: {e}")
+                analyses[symbol] = {"ok": False, "score": 0}
+
+        # 第二步：智能组合构建
+        print(f"\n=== 构建投资组合 ===")
+        pm = EnhancedPortfolioManager()
+
+        try:
+            portfolio_result = await pm.smart_allocate(analyses)
+
+            if portfolio_result.get("ok"):
+                print("推荐组合:")
+                for holding in portfolio_result.get("weights", []):
+                    symbol = holding["symbol"]
+                    weight = holding["weight"]
+                    analysis = analyses.get(symbol, {})
+                    score = analysis.get("adjusted_score", analysis.get("score", 0))
+                    print(f"  {symbol}: {weight * 100:.1f}% (评分:{score})")
+
+                reasoning = portfolio_result.get("reasoning", "")
+                if reasoning:
+                    print(f"\n选择理由: {reasoning}")
+
+            else:
+                print("组合构建失败")
+
+        except Exception as e:
+            print(f"组合构建错误: {e}")
 
 
 if __name__ == "__main__":
