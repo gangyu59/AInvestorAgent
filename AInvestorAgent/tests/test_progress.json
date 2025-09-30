@@ -1,0 +1,386 @@
+{
+  "meta": {
+    "last_updated": "2025-01-15T00:00:00Z",
+    "total_tests": 40,
+    "passed": 3,
+    "failed": 0,
+    "pending": 37,
+    "pass_rate": 7.5
+  },
+  "suites": {
+    "tests/agents": {
+      "title": "🤖 智能体测试",
+      "priority": "P0",
+      "total": 8,
+      "passed": 2,
+      "tests": {
+        "test_all_agents.py": {
+          "status": "passed",
+          "last_run": "2025-01-14T10:30:00Z",
+          "duration": "1.2s",
+          "notes": "基础功能正常"
+        },
+        "test_agent_coordination.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "测试所有 API 端点"
+        },
+        "test_orchestrator_flow.py": {
+          "status": "partial",
+          "last_run": "2025-01-14T16:00:00Z",
+          "passed_cases": 3,
+          "total_cases": 6,
+          "notes": "基本流程OK，待补充错误处理"
+        }
+      }
+    },
+    "tests/validation": {
+      "title": "✓ 验证测试",
+      "priority": "P1",
+      "total": 5,
+      "passed": 0,
+      "tests": {
+        "test_data_quality.py": {
+          "status": "pending",
+          "blocked_by": ["test_data_cleaner.py"],
+          "estimated_effort": "3h",
+          "notes": "需要先完成数据清洗"
+        },
+        "test_data_consistency.py": {
+          "status": "pending",
+          "blocked_by": ["test_data_ingestor.py"],
+          "estimated_effort": "2h",
+          "notes": "跨源数据一致性验证"
+        },
+        "test_factor_ic.py": {
+          "status": "pending",
+          "blocked_by": ["test_signal_researcher.py"],
+          "estimated_effort": "4h",
+          "notes": "需要历史数据计算 IC"
+        },
+        "test_sentiment_accuracy.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "5h",
+          "notes": "需要人工标注数据集"
+        },
+        "test_backtest_accuracy.py": {
+          "status": "pending",
+          "blocked_by": ["test_backtest_engineer.py"],
+          "estimated_effort": "3h",
+          "notes": "与 Backtrader 对比验证"
+        }
+      }
+    },
+    "tests/regression": {
+      "title": "🔸 回归测试",
+      "priority": "P1",
+      "total": 3,
+      "passed": 0,
+      "tests": {
+        "test_scores_snapshot.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "建立评分基线快照"
+        },
+        "test_portfolio_snapshot.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "建立组合基线快照"
+        },
+        "test_api_contract.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "记录 API 契约并验证"
+        }
+      }
+    },
+    "tests/performance": {
+      "title": "⚡ 性能测试",
+      "priority": "P2",
+      "total": 3,
+      "passed": 1,
+      "tests": {
+        "test_latency.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "建立延迟基准"
+        },
+        "test_throughput.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "测试吞吐量"
+        },
+        "test_concurrent.py": {
+          "status": "passed",
+          "last_run": "2025-01-15T09:00:00Z",
+          "duration": "45.3s",
+          "notes": "已修复超时问题 ✅"
+        }
+      }
+    },
+    "tests/stress": {
+      "title": "💪 压力测试",
+      "priority": "P2",
+      "total": 5,
+      "passed": 0,
+      "tests": {
+        "test_market_crash.py": {
+          "status": "pending",
+          "blocked_by": ["test_backtest_engineer.py"],
+          "estimated_effort": "3h",
+          "notes": "模拟极端市场场景"
+        },
+        "test_extreme_scenarios.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "4h",
+          "notes": "熔断、涨跌停等场景"
+        },
+        "test_failure_recovery.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "测试故障恢复能力"
+        },
+        "test_data_overflow.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "大规模数据处理"
+        },
+        "test_resource_exhaustion.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "资源监控和限制"
+        }
+      }
+    },
+    "tests/security": {
+      "title": "🔒 安全测试",
+      "priority": "P3",
+      "total": 5,
+      "passed": 0,
+      "tests": {
+        "test_injection.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "SQL 注入防护"
+        },
+        "test_xss.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "XSS 攻击防护"
+        },
+        "test_authentication.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "认证机制测试"
+        },
+        "test_authorization.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "权限控制测试"
+        },
+        "test_data_sanitization.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "数据清洗和验证"
+        }
+      }
+    },
+    "tests/ui": {
+      "title": "🎨 UI测试",
+      "priority": "P3",
+      "total": 7,
+      "passed": 0,
+      "tests": {
+        "test_homepage.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "首页功能测试"
+        },
+        "test_stock_page.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "个股页面测试"
+        },
+        "test_portfolio_page.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "组合页面测试"
+        },
+        "test_simulator_page.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "模拟器页面测试"
+        },
+        "test_charts.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "4h",
+          "notes": "图表渲染测试"
+        },
+        "test_navigation.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "导航和路由测试"
+        },
+        "test_responsiveness.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "响应式布局测试"
+        }
+      }
+    }
+  },
+  "milestones": {
+    "week1": {
+      "target": "P0 测试全部通过",
+      "tests": ["tests/agents", "tests/integration"],
+      "target_count": 12,
+      "current_passed": 3,
+      "deadline": "2025-01-22"
+    },
+    "week2": {
+      "target": "P1 测试全部通过",
+      "tests": ["tests/validation", "tests/regression"],
+      "target_count": 8,
+      "current_passed": 0,
+      "deadline": "2025-01-29"
+    },
+    "week3": {
+      "target": "P2 测试全部通过",
+      "tests": ["tests/performance", "tests/stress"],
+      "target_count": 8,
+      "current_passed": 1,
+      "deadline": "2025-02-05"
+    },
+    "week4": {
+      "target": "P3 测试全部通过，达到 100%",
+      "tests": ["tests/security", "tests/ui"],
+      "target_count": 12,
+      "current_passed": 0,
+      "deadline": "2025-02-12"
+    }
+  },
+  "daily_goals": {
+    "2025-01-15": {
+      "plan": [
+        "修复 test_concurrent.py 超时 ✅",
+        "实现 test_agent_coordination.py",
+        "补全 test_data_ingestor.py 多源融合"
+      ],
+      "completed": ["修复 test_concurrent.py 超时"],
+      "blocked": []
+    },
+    "2025-01-16": {
+      "plan": [
+        "实现 test_data_cleaner.py 完整逻辑",
+        "补全 test_signal_researcher.py IC 计算",
+        "运行完整 tests/agents/ 套件"
+      ],
+      "completed": [],
+      "blocked": []
+    }
+  },
+  "notes": {
+    "next_actions": [
+      "1. 优先完成 test_data_cleaner.py（解除多个依赖）",
+      "2. 实现 test_agent_coordination.py（核心协调机制）",
+      "3. 完成 tests/integration/test_end_to_end.py（端到端验证）"
+    ],
+    "blockers": [
+      "test_data_cleaner.py 阻塞了 3 个测试",
+      "需要人工标注数据集用于情绪准确性测试"
+    ],
+    "achievements": [
+      "✅ 修复并发测试超时问题",
+      "✅ 风险管理和组合管理测试通过",
+      "✅ 测试基础设施搭建完成"
+    ]
+  }
+}effort": "2h",
+          "notes": "需要实现消息传递机制"
+        },
+        "test_data_ingestor.py": {
+          "status": "partial",
+          "last_run": "2025-01-14T11:00:00Z",
+          "passed_cases": 5,
+          "total_cases": 8,
+          "notes": "基本拉取OK，待补充多源融合"
+        },
+        "test_data_cleaner.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "3h",
+          "notes": "需要实现缺失值填充和异常检测"
+        },
+        "test_signal_researcher.py": {
+          "status": "partial",
+          "last_run": "2025-01-14T12:00:00Z",
+          "passed_cases": 6,
+          "total_cases": 10,
+          "notes": "因子计算OK，待补充IC计算"
+        },
+        "test_backtest_engineer.py": {
+          "status": "partial",
+          "last_run": "2025-01-14T13:00:00Z",
+          "passed_cases": 4,
+          "total_cases": 8,
+          "notes": "基础回测OK，待补充滑点和分红"
+        },
+        "test_risk_manager.py": {
+          "status": "passed",
+          "last_run": "2025-01-14T14:00:00Z",
+          "duration": "0.8s",
+          "notes": "风控逻辑完整"
+        },
+        "test_portfolio_manager.py": {
+          "status": "passed",
+          "last_run": "2025-01-14T15:00:00Z",
+          "duration": "1.0s",
+          "notes": "组合生成正常"
+        }
+      }
+    },
+    "tests/integration": {
+      "title": "🔗 集成测试",
+      "priority": "P0",
+      "total": 4,
+      "passed": 0,
+      "tests": {
+        "test_end_to_end.py": {
+          "status": "pending",
+          "blocked_by": ["test_data_cleaner.py"],
+          "estimated_effort": "4h",
+          "notes": "需要完整链路打通"
+        },
+        "test_agent_pipeline.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_effort": "2h",
+          "notes": "测试 Agent 流水线"
+        },
+        "test_api_integration.py": {
+          "status": "pending",
+          "blocked_by": [],
+          "estimated_

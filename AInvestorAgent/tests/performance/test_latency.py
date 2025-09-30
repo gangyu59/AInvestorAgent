@@ -89,9 +89,14 @@ class TestEndpointLatency:
             print(f"\n   第{i+1}次测试...")
             start = time.time()
 
+            candidates = [
+                {"symbol": "AAPL", "sector": "Technology", "score": 80.0},
+                {"symbol": "MSFT", "sector": "Technology", "score": 75.0}
+            ]
+
             response = requests.post(
-                f"{base_url}/api/orchestrator/decide",
-                json={"topk": 10, "mock": False},
+                f"{base_url}/api/orchestrator/propose",
+                json={"candidates": candidates, "params": {"mock": True}},
                 timeout=120
             )
 
