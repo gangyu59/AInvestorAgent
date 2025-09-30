@@ -234,7 +234,7 @@
                 <div class="section log-section">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                         <h2 style="margin: 0;">测试日志</h2>
-                        <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8em;" onclick="copyAllLogs()">
+                        <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8em;" onclick="copyAllLogs(event)">
                             复制日志
                         </button>
                     </div>
@@ -498,7 +498,7 @@
             URL.revokeObjectURL(url);
         }
 
-        function copyAllLogs() {
+        function copyAllLogs(event) {  // 添加 event 参数
             const logText = Array.from(document.querySelectorAll('.log-line'))
                 .map(el => el.textContent)
                 .join('\n');
@@ -509,14 +509,14 @@
             }
 
             navigator.clipboard.writeText(logText).then(() => {
-                const btn = event.target;
+                const btn = event.target;  // 现在可以正确访问
                 const originalText = btn.textContent;
                 btn.textContent = '已复制!';
                 setTimeout(() => {
                     btn.textContent = originalText;
                 }, 2000);
             }).catch(err => {
-                alert('复制失败：' + err.message);
+                alert('复制失败:' + err.message);
             });
         }
 

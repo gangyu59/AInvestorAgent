@@ -25,8 +25,8 @@ class TestOrchestratorBasicFlow:
         response = requests.post(
             f"{self.base_url}/api/orchestrator/dispatch",
             json={
-                "symbols": ["AAPL", "MSFT"],
-                "scene": "research"
+                "symbol": "AAPL",  # 修改：使用单个symbol而非symbols数组
+                "params": {"mock": True, "news_days": 14}
             },
             timeout=self.timeout
         )
@@ -39,8 +39,17 @@ class TestOrchestratorBasicFlow:
         assert response.status_code == 200
         data = response.json()
 
-        assert "trace_id" in data
-        print(f"   ✅ Trace ID: {data['trace_id']}")
+        # 验证返回结构
+        assert "context" in data
+        assert "trace" in data
+
+        context = data["context"]
+        assert "factors" in context
+        assert "score" in context
+
+        print(f"   ✅ Symbol: {context.get('symbol')}")
+        print(f"   ✅ Score: {context.get('score')}")
+        print(f"   ✅ Trace步骤: {len(data['trace'])}")
 
     def test_02_propose_pipeline(self):
         """测试: Propose管道"""
@@ -48,10 +57,18 @@ class TestOrchestratorBasicFlow:
         print("测试: Propose管道")
         print("="*60)
 
+        # 准备候选股票
+        candidates = [
+            {"symbol": "AAPL", "sector": "Technology", "score": 85.0},
+            {"symbol": "MSFT", "sector": "Technology", "score": 82.0},
+            {"symbol": "GOOGL", "sector": "Technology", "score": 80.0}
+        ]
+
         response = requests.post(
             f"{self.base_url}/api/orchestrator/propose",
             json={
-                "symbols": ["AAPL", "MSFT", "GOOGL"]
+                "candidates": candidates,
+                "params": {"mock": True}
             },
             timeout=self.timeout
         )
@@ -64,8 +81,15 @@ class TestOrchestratorBasicFlow:
         assert response.status_code == 200
         data = response.json()
 
-        assert "holdings" in data
-        print(f"   ✅ 组合生成: {len(data['holdings'])}支")
+        # 验证返回结构
+        assert "context" in data
+        context = data["context"]
+
+        assert "kept" in context, "context缺少kept字段"
+        assert "concentration" in context, "context缺少concentration字段"
+
+        print(f"   ✅ 组合生成: {len(context['kept'])}支")
+        print(f"   ✅ 行业分布: {context.get('concentration', {})}")
 
     def test_03_propose_backtest_pipeline(self):
         """测试: Propose+Backtest管道"""
@@ -73,11 +97,19 @@ class TestOrchestratorBasicFlow:
         print("测试: Propose+Backtest管道")
         print("="*60)
 
+        candidates = [
+            {"symbol": "AAPL", "sector": "Technology", "score": 85.0},
+            {"symbol": "MSFT", "sector": "Technology", "score": 82.0}
+        ]
+
         response = requests.post(
             f"{self.base_url}/api/orchestrator/propose_backtest",
             json={
-                "symbols": ["AAPL", "MSFT"],
-                "window": "6M"
+                "candidates": candidates,
+                "params": {
+                    "mock": True,
+                    "window_days": 180
+                }
             },
             timeout=self.timeout
         )
@@ -90,11 +122,17 @@ class TestOrchestratorBasicFlow:
         assert response.status_code == 200
         data = response.json()
 
-        required_fields = ["holdings", "nav", "metrics"]
+        # 验证返回结构
+        assert "context" in data
+        context = data["context"]
+
+        required_fields = ["kept", "dates", "nav", "metrics"]
         for field in required_fields:
-            assert field in data, f"缺少字段: {field}"
+            assert field in context, f"缺少字段: {field}"
 
         print(f"   ✅ 组合+回测完成")
+        print(f"   ✅ NAV点数: {len(context.get('nav', []))}")
+        print(f"   ✅ 指标: {context.get('metrics', {})}")
 
 
 class TestOrchestratorTracing:
@@ -110,36 +148,32 @@ class TestOrchestratorTracing:
         print("测试: Trace创建")
         print("="*60)
 
+        # 使用dispatch端点测试trace
         response = requests.post(
-            f"{self.base_url}/api/orchestrator/decide",
-            json={"topk": 5, "mock": True},
+            f"{self.base_url}/api/orchestrator/dispatch",
+            json={
+                "symbol": "AAPL",
+                "params": {"mock": True}
+            },
             timeout=60
         )
 
         if response.status_code != 200:
-            pytest.skip("Decide endpoint unavailable")
+            pytest.skip("Dispatch endpoint unavailable")
             return
 
         data = response.json()
-        trace_id = data.get("trace_id")
 
-        assert trace_id is not None
-        print(f"   ✅ Trace ID: {trace_id}")
+        assert "trace" in data
+        trace = data["trace"]
+        assert len(trace) > 0
 
-        # 尝试查询trace
-        trace_response = requests.get(
-            f"{self.base_url}/api/trace/{trace_id}",
-            timeout=10
-        )
+        print(f"   ✅ Trace步骤数: {len(trace)}")
 
-        if trace_response.status_code == 200:
-            trace_data = trace_response.json()
-            print(f"   ✅ Trace查询成功")
-
-            if "steps" in trace_data:
-                print(f"   📊 步骤数: {len(trace_data['steps'])}")
-        else:
-            print(f"   ℹ️  Trace查询端点未实现")
+        # 验证trace结构
+        for step in trace:
+            assert "agent" in step
+            print(f"   📊 Agent: {step.get('agent')}")
 
     def test_02_trace_persistence(self):
         """测试: Trace持久化"""
@@ -147,24 +181,28 @@ class TestOrchestratorTracing:
         print("测试: Trace持久化")
         print("="*60)
 
-        # 执行两次决策
-        trace_ids = []
-        for i in range(2):
+        # 执行两次dispatch
+        symbols = ["AAPL", "MSFT"]
+        results = []
+
+        for symbol in symbols:
             response = requests.post(
-                f"{self.base_url}/api/orchestrator/decide",
-                json={"topk": 5, "mock": True},
+                f"{self.base_url}/api/orchestrator/dispatch",
+                json={
+                    "symbol": symbol,
+                    "params": {"mock": True}
+                },
                 timeout=60
             )
 
             if response.status_code == 200:
                 data = response.json()
-                trace_ids.append(data.get("trace_id"))
+                results.append(data)
 
-        if len(trace_ids) == 2:
-            assert trace_ids[0] != trace_ids[1], "Trace ID应该唯一"
-            print(f"   ✅ Trace ID唯一性验证通过")
-            print(f"      Trace 1: {trace_ids[0]}")
-            print(f"      Trace 2: {trace_ids[1]}")
+        if len(results) == 2:
+            print(f"   ✅ 成功执行{len(results)}次dispatch")
+            print(f"   ✅ Symbol 1: {results[0].get('context', {}).get('symbol')}")
+            print(f"   ✅ Symbol 2: {results[1].get('context', {}).get('symbol')}")
 
 
 class TestOrchestratorErrorHandling:
@@ -174,46 +212,44 @@ class TestOrchestratorErrorHandling:
     def setup(self, base_url):
         self.base_url = base_url
 
-    def test_01_missing_symbols(self):
-        """测试: 缺少symbols参数"""
+    def test_01_missing_parameters(self):
+        """测试: 缺少必要参数"""
         print("\n" + "="*60)
-        print("测试: 缺少symbols参数")
+        print("测试: 缺少必要参数")
         print("="*60)
 
+        # dispatch缺少symbol
         response = requests.post(
-            f"{self.base_url}/api/orchestrator/decide",
-            json={},
+            f"{self.base_url}/api/orchestrator/dispatch",
+            json={"params": {}},
             timeout=10
         )
 
-        # 应该返回错误或使用默认值
+        # 应该返回错误
         if response.status_code in [400, 422]:
             print(f"   ✅ 正确返回错误: {response.status_code}")
-        elif response.status_code == 200:
-            print(f"   ✅ 使用默认值处理")
         else:
-            print(f"   ⚠️  意外状态码: {response.status_code}")
+            print(f"   ⚠️  状态码: {response.status_code}")
 
-    def test_02_invalid_parameters(self):
-        """测试: 无效参数"""
+    def test_02_invalid_candidates(self):
+        """测试: 无效候选列表"""
         print("\n" + "="*60)
-        print("测试: 无效参数")
+        print("测试: 无效候选列表")
         print("="*60)
 
         test_cases = [
-            {"topk": -1, "expected": "负数topk"},
-            {"topk": 0, "expected": "零topk"},
-            {"topk": 10000, "expected": "超大topk"}
+            {"candidates": [], "desc": "空候选列表"},
+            {"candidates": [{"symbol": "INVALID"}], "desc": "缺少必要字段"},
         ]
 
         for case in test_cases:
             response = requests.post(
-                f"{self.base_url}/api/orchestrator/decide",
+                f"{self.base_url}/api/orchestrator/propose",
                 json=case,
                 timeout=10
             )
 
-            print(f"   {case['expected']}: {response.status_code}")
+            print(f"   {case['desc']}: {response.status_code}")
 
     def test_03_timeout_handling(self):
         """测试: 超时处理"""
@@ -223,11 +259,11 @@ class TestOrchestratorErrorHandling:
 
         try:
             response = requests.post(
-                f"{self.base_url}/api/orchestrator/decide",
-                json={"topk": 100, "mock": False},
+                f"{self.base_url}/api/orchestrator/dispatch",
+                json={"symbol": "AAPL", "params": {"mock": False}},
                 timeout=5  # 很短的超时
             )
-            print(f"   ✅ 请求在超时前完成")
+            print(f"   ✅ 请求在超时前完成: {response.status_code}")
         except requests.Timeout:
             print(f"   ✅ 超时处理正常")
 
@@ -249,8 +285,8 @@ class TestOrchestratorPerformance:
         for i in range(3):
             start = time.time()
             response = requests.post(
-                f"{self.base_url}/api/orchestrator/decide",
-                json={"topk": 10, "mock": True},
+                f"{self.base_url}/api/orchestrator/dispatch",
+                json={"symbol": "AAPL", "params": {"mock": True}},
                 timeout=30
             )
             elapsed = time.time() - start
@@ -276,8 +312,8 @@ class TestOrchestratorPerformance:
 
         start = time.time()
         response = requests.post(
-            f"{self.base_url}/api/orchestrator/decide",
-            json={"topk": 5, "mock": False},
+            f"{self.base_url}/api/orchestrator/dispatch",
+            json={"symbol": "AAPL", "params": {"mock": False}},
             timeout=120
         )
         elapsed = time.time() - start

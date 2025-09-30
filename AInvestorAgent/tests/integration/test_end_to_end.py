@@ -51,22 +51,26 @@ class TestEndToEndDecisionFlow:
 
         symbols = test_symbols[:3]  # 使用前3支股票减少负载
 
+        candidates = [
+            {"symbol": sym, "sector": "Technology", "score": 80.0}
+            for sym in symbols
+        ]
+
         # Step 1: 调用决策端点
         print(f"\n📊 Step 1: 调用决策端点")
         start_time = time.time()
 
-        # 尝试多个可能的决策端点
         decision_endpoints = [
-            f"{self.base_url}/api/orchestrator/decide",
-            f"{self.base_url}/api/orchestrate/decide",
-            f"{self.base_url}/api/decision/make",
-            f"{self.base_url}/api/decide"
+            f"{self.base_url}/api/orchestrator/propose"
         ]
 
         response, used_endpoint = self.find_working_endpoint(
             decision_endpoints,
             method="POST",
-            json_data={"topk": len(symbols), "mock": True},
+            json_data = {
+                "candidates": candidates,
+                "params": {"mock": True}
+            },
             timeout=self.timeout
         )
 
@@ -192,8 +196,7 @@ class TestEndToEndDecisionFlow:
 
         # 尝试决策端点
         decision_endpoints = [
-            f"{self.base_url}/api/orchestrator/decide",
-            f"{self.base_url}/api/decide"
+            f"{self.base_url}/api/orchestrator/propose"
         ]
 
         response, _ = self.find_working_endpoint(
@@ -307,8 +310,7 @@ class TestEndToEndDecisionFlow:
         ]
 
         decision_endpoints = [
-            f"{self.base_url}/api/orchestrator/decide",
-            f"{self.base_url}/api/decide"
+            f"{self.base_url}/api/orchestrator/propose"
         ]
 
         for scenario in scenarios:
@@ -369,8 +371,7 @@ class TestEndToEndDecisionFlow:
         print(f"\n❌ 场景1: 无效参数")
 
         decision_endpoints = [
-            f"{self.base_url}/api/orchestrator/decide",
-            f"{self.base_url}/api/decide"
+            f"{self.base_url}/api/orchestrator/propose"
         ]
 
         for endpoint in decision_endpoints:
@@ -781,7 +782,6 @@ class TestDataToDecisionIntegration:
         if score_response and score_response.status_code == 200:
             score_data = score_response.json()
 
-            # 提取评分
             items_key = None
             for key in ["items", "scores", "data"]:
                 if key in score_data and isinstance(score_data[key], list):
@@ -791,17 +791,19 @@ class TestDataToDecisionIntegration:
             if items_key:
                 for item in score_data[items_key]:
                     symbol = item.get("symbol", item.get("ticker", "Unknown"))
-                    score = item.get("score", item.get("rating", 0))
+                    score_obj = item.get("score", {})
+
+                    # 修复：提取实际的数字分数
+                    if isinstance(score_obj, dict):
+                        score = score_obj.get("score", 0)  # 从字典中提取score字段
+                    else:
+                        score = score_obj  # 如果已经是数字
+
                     scores[symbol] = score
 
                 print(f"   ✅ 获取{len(scores)}支股票评分")
                 for symbol, score in scores.items():
-                    print(f"   📊 {symbol}: {score}")
-            else:
-                # 可能是直接返回字典
-                scores = {sym: score_data.get(sym, 0) for sym in symbols if sym in score_data}
-                if scores:
-                    print(f"   ✅ 获取{len(scores)}支股票评分")
+                    print(f"   📊 {symbol}: {score}")  # 现在显示数字而不是字典
         else:
             print(f"   ⚠️  批量评分端点未找到，使用模拟评分")
             # 使用模拟评分继续测试
@@ -848,6 +850,7 @@ class TestDataToDecisionIntegration:
                 selected_scores = [scores.get(sym, 0) for sym in selected_symbols if sym in scores]
 
                 if selected_scores:
+                    # 现在 selected_scores 是数字列表，可以求和
                     avg_selected = sum(selected_scores) / len(selected_scores)
 
                     # 检查未入选股票
