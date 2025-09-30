@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from backend.storage import models
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 def _last_close(db: Session, symbol: str, asof: date):
     q = (db.query(models.PriceDaily)
@@ -168,3 +168,280 @@ def calculate_technical_indicators(db: Session, symbol: str, asof: date) -> Dict
         print(f"技术指标计算失败 {symbol}: {e}")
     
     return indicators
+
+def calculate_macd(prices: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, List[float]]:
+    """计算MACD指标"""
+    if len(prices) < slow + signal:
+        return {'macd': [np.nan] * len(prices), 'signal': [np.nan] * len(prices), 'histogram': [np.nan] * len(prices)}
+
+    # 计算EMA
+    def ema(data, period):
+        multiplier = 2 / (period + 1)
+        ema_values = [data[0]]  # 第一个值作为初始EMA
+        for i in range(1, len(data)):
+            ema_val = (data[i] * multiplier) + (ema_values[-1] * (1 - multiplier))
+            ema_values.append(ema_val)
+        return ema_values
+
+    ema_fast = ema(prices, fast)
+    ema_slow = ema(prices, slow)
+
+    # MACD线
+    macd = [fast_val - slow_val for fast_val, slow_val in zip(ema_fast, ema_slow)]
+
+    # 信号线
+    signal_line = ema(macd[slow - 1:], signal)  # 从slow-1开始计算信号线
+    signal_full = [np.nan] * (slow - 1) + signal_line
+
+    # 柱状图
+    histogram = []
+    for i in range(len(macd)):
+        if i < len(signal_full) and not np.isnan(signal_full[i]):
+            histogram.append(macd[i] - signal_full[i])
+        else:
+            histogram.append(np.nan)
+
+    return {
+        'macd': macd,
+        'signal': signal_full,
+        'histogram': histogram
+    }
+
+def calculate_bollinger_bands(prices: List[float], period: int = 20, std_dev: float = 2.0) -> Dict[str, List[float]]:
+    """计算布林带"""
+    if len(prices) < period:
+        return {'upper': [np.nan] * len(prices), 'middle': [np.nan] * len(prices), 'lower': [np.nan] * len(prices)}
+
+    sma = calculate_sma(prices, period)
+    upper, lower = [], []
+
+    for i in range(len(prices)):
+        if i < period - 1:
+            upper.append(np.nan)
+            lower.append(np.nan)
+        else:
+            std = np.std(prices[i - period + 1:i + 1])
+            upper.append(sma[i] + std_dev * std)
+            lower.append(sma[i] - std_dev * std)
+
+    return {
+        'upper': upper,
+        'middle': sma,
+        'lower': lower
+    }
+
+def calculate_signal_strength(db: Session, symbol: str, asof: date) -> Dict[str, float]:
+    """
+    计算综合信号强度
+    """
+    indicators = calculate_technical_indicators(db, symbol, asof)
+    df = get_price_series(db, symbol, asof, lookback_days=252)
+
+    if len(df) < 50:
+        return {}
+
+    signal_strength = {}
+
+    try:
+        close = df['close'].tolist()
+
+        # 趋势信号强度
+        ma20 = indicators.get('ma20')
+        ma60 = indicators.get('ma60')
+        current_price = close[-1]
+
+        trend_signals = []
+        if ma20 and ma60:
+            # 均线排列
+            if current_price > ma20 > ma60:
+                trend_signals.append(1)  # 强多头排列
+            elif current_price > ma20 and ma20 < ma60:
+                trend_signals.append(0.5)  # 弱多头
+            elif current_price < ma20 < ma60:
+                trend_signals.append(-1)  # 强空头排列
+            else:
+                trend_signals.append(-0.5)  # 弱空头
+
+        # RSI信号
+        rsi = indicators.get('rsi')
+        if rsi:
+            if rsi > 70:
+                trend_signals.append(-0.5)  # 超买
+            elif rsi < 30:
+                trend_signals.append(0.5)  # 超卖
+            else:
+                trend_signals.append(0)  # 中性
+
+        # 动量信号
+        momentum_score = indicators.get('momentum_score', 0)
+        if momentum_score > 0.1:
+            trend_signals.append(1)
+        elif momentum_score < -0.1:
+            trend_signals.append(-1)
+        else:
+            trend_signals.append(0)
+
+        # 计算MACD信号
+        macd_result = calculate_macd(close)
+        macd_hist = macd_result['histogram']
+        if len(macd_hist) > 0 and not np.isnan(macd_hist[-1]):
+            if macd_hist[-1] > 0:
+                trend_signals.append(0.5)
+            else:
+                trend_signals.append(-0.5)
+
+        # 布林带信号
+        bb_result = calculate_bollinger_bands(close)
+        if not np.isnan(bb_result['upper'][-1]):
+            bb_position = (current_price - bb_result['lower'][-1]) / (bb_result['upper'][-1] - bb_result['lower'][-1])
+            if bb_position > 0.8:
+                trend_signals.append(-0.3)  # 接近上轨，谨慎
+            elif bb_position < 0.2:
+                trend_signals.append(0.3)  # 接近下轨，关注
+            else:
+                trend_signals.append(0)
+
+        # 综合信号强度
+        if trend_signals:
+            signal_strength['overall_signal'] = float(np.mean(trend_signals))
+            signal_strength['signal_count'] = len(trend_signals)
+            signal_strength['signal_consistency'] = float(np.std(trend_signals))  # 一致性（越小越一致）
+
+            # 信号评级
+            avg_signal = signal_strength['overall_signal']
+            consistency = signal_strength['signal_consistency']
+
+            if avg_signal > 0.5 and consistency < 0.3:
+                signal_strength['rating'] = "strong_buy"
+            elif avg_signal > 0.2 and consistency < 0.5:
+                signal_strength['rating'] = "buy"
+            elif avg_signal < -0.5 and consistency < 0.3:
+                signal_strength['rating'] = "strong_sell"
+            elif avg_signal < -0.2 and consistency < 0.5:
+                signal_strength['rating'] = "sell"
+            else:
+                signal_strength['rating'] = "hold"
+
+    except Exception as e:
+        print(f"信号强度计算失败 {symbol}: {e}")
+
+    return signal_strength
+
+def calculate_momentum_quality(db: Session, symbol: str, asof: date) -> Dict[str, float]:
+    """
+    评估动量质量（区分真动量和假突破）
+    """
+    df = get_price_series(db, symbol, asof, lookback_days=252)
+
+    if len(df) < 60:
+        return {}
+
+    quality_metrics = {}
+
+    try:
+        close = df['close'].tolist()
+        volume = df['volume'].tolist()
+
+        # 动量持续性
+        returns_20d = [(close[i] - close[i - 20]) / close[i - 20] for i in range(20, len(close))]
+        if len(returns_20d) >= 5:
+            # 最近5个周期的动量方向一致性
+            positive_count = sum(1 for r in returns_20d[-5:] if r > 0)
+            quality_metrics['momentum_persistence'] = positive_count / 5.0
+
+        # 量价配合度
+        price_changes = [close[i] - close[i - 1] for i in range(1, len(close))]
+        volume_changes = [volume[i] - volume[i - 1] for i in range(1, len(volume))]
+
+        # 计算价涨量增的比例
+        price_vol_match = sum(1 for i in range(len(price_changes))
+                              if (price_changes[i] > 0 and volume_changes[i] > 0) or
+                              (price_changes[i] < 0 and volume_changes[i] < 0))
+        quality_metrics['price_volume_match'] = price_vol_match / len(price_changes)
+
+        # 动量稳定性（收益率标准差的倒数）
+        recent_returns = [(close[i] - close[i - 1]) / close[i - 1] for i in range(max(1, len(close) - 60), len(close))]
+        if recent_returns:
+            volatility = np.std(recent_returns)
+            momentum_value = (close[-1] / close[max(0, len(close) - 60)] - 1)
+            if volatility > 0:
+                quality_metrics['momentum_stability'] = abs(momentum_value) / volatility
+            else:
+                quality_metrics['momentum_stability'] = 0.0
+
+        # 综合动量质量评分
+        persistence = quality_metrics.get('momentum_persistence', 0.5)
+        pv_match = quality_metrics.get('price_volume_match', 0.5)
+        stability = min(1.0, quality_metrics.get('momentum_stability', 0) / 2.0)
+
+        quality_metrics['overall_momentum_quality'] = (persistence * 0.4 + pv_match * 0.3 + stability * 0.3)
+
+    except Exception as e:
+        print(f"动量质量计算失败 {symbol}: {e}")
+
+    return quality_metrics
+
+def get_advanced_momentum_report(db: Session, symbol: str, asof: date) -> Dict[str, Any]:
+    """
+    生成高级动量分析报告
+    """
+    from typing import Any
+
+    report = {
+        'symbol': symbol,
+        'as_of': asof.isoformat(),
+        'technical_indicators': {},
+        'signal_strength': {},
+        'momentum_quality': {},
+        'recommendations': []
+    }
+
+    try:
+        # 基础技术指标
+        report['technical_indicators'] = calculate_technical_indicators(db, symbol, asof)
+
+        # 信号强度
+        report['signal_strength'] = calculate_signal_strength(db, symbol, asof)
+
+        # 动量质量
+        report['momentum_quality'] = calculate_momentum_quality(db, symbol, asof)
+
+        # 生成建议
+        signal_strength = report['signal_strength']
+        rating = signal_strength.get('rating', 'hold')
+
+        if rating == "strong_buy":
+            report['recommendations'].append("技术面强烈买入信号，多项指标共振向上")
+        elif rating == "buy":
+            report['recommendations'].append("技术面偏多，建议适度关注")
+        elif rating == "hold":
+            report['recommendations'].append("技术面中性，观望为主")
+        elif rating == "sell":
+            report['recommendations'].append("技术面偏弱，建议谨慎")
+        else:
+            report['recommendations'].append("技术面看空，规避风险")
+
+        # 风险提示
+        volatility = report['technical_indicators'].get('volatility', 0)
+        if volatility > 0.35:
+            report['recommendations'].append("⚠️ 波动率较高，注意控制仓位")
+
+        rsi = report['technical_indicators'].get('rsi')
+        if rsi:
+            if rsi > 75:
+                report['recommendations'].append("⚠️ RSI超买区域，短期可能回调")
+            elif rsi < 25:
+                report['recommendations'].append("⚠️ RSI超卖区域，存在反弹机会")
+
+        # 动量质量评估
+        momentum_quality = report['momentum_quality'].get('overall_momentum_quality', 0.5)
+        if momentum_quality > 0.7:
+            report['recommendations'].append("✓ 动量质量优秀，趋势可持续性强")
+        elif momentum_quality < 0.3:
+            report['recommendations'].append("⚠️ 动量质量较弱，可能为假突破")
+
+    except Exception as e:
+        print(f"动量报告生成失败 {symbol}: {e}")
+        report['error'] = str(e)
+
+    return report

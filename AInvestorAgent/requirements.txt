@@ -1,25 +1,39 @@
-# Web framework
-fastapi==0.111.0
-uvicorn[standard]==0.30.1
+# Core Framework
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
 
-# ORM & Database
-SQLAlchemy==2.0.30
-alembic==1.13.1
+# Database
+sqlalchemy>=2.0.0
+alembic>=1.12.0
 
-# Config & Env
-pydantic==2.7.1
-python-dotenv==1.0.1
+# Data Processing
+pandas>=1.5.0
+numpy>=1.23.0
+scipy>=1.9.0
 
-# HTTP client
-requests==2.32.3
+# HTTP Client
+httpx>=0.25.0
+requests>=2.31.0
 
-# Data & Analysis (因子计算/回测会用)
-pandas==2.2.2
-numpy==1.26.4
+# Task Scheduling
+apscheduler>=3.10.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-html>=4.0.0
+
+# Date/Time
+python-dateutil>=2.8.2
 
 # 可选：新闻/文本分析 (后续用到 LLM/RAG 时有帮助)
 scikit-learn==1.5.0
 
-# 可选：测试
-pytest==8.2.1
-httpx==0.27.0
+# LLM Integration (optional, based on your API usage)
+openai>=1.0.0
+
+# For development
+black>=23.0.0
+flake8>=6.0.0

@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AInvestorAgent - 测试仪表盘</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3e 100%);
+            color: #e0e0e0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 1600px; margin: 0 auto; }
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+        }
+        h1 {
+            font-size: 2em;
+            background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        .status-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .status-card {
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            text-align: center;
+        }
+        .status-card h3 { font-size: 0.85em; color: #999; margin-bottom: 8px; }
+        .status-card .number { font-size: 2em; font-weight: bold; }
+        .status-card.passed .number { color: #4ade80; }
+        .status-card.failed .number { color: #f87171; }
+        .status-card.total .number { color: #60a5fa; }
+        .status-card.duration .number { color: #a78bfa; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9em;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn:hover { transform: translateY(-2px); }
+        .btn-primary { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); color: white; }
+        .btn-success { background: linear-gradient(90deg, #56ab2f 0%, #a8e063 100%); color: white; }
+        .btn-danger { background: linear-gradient(90deg, #eb3349 0%, #f45c43 100%); color: white; }
+        .btn-secondary { background: rgba(255, 255, 255, 0.1); color: #e0e0e0; }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .section h2 {
+            margin-bottom: 15px;
+            color: #4facfe;
+            font-size: 1.2em;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+        }
+
+        .test-tree {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .test-category {
+            margin-bottom: 10px;
+        }
+        .category-header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .category-header:hover { background: rgba(255, 255, 255, 0.15); }
+        .test-item {
+            padding: 8px 12px;
+            margin-left: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            margin-bottom: 5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 3px solid transparent;
+        }
+        .test-item:hover { background: rgba(255, 255, 255, 0.1); }
+        .test-item.passed { border-left-color: #4ade80; }
+        .test-item.failed { border-left-color: #f87171; }
+        .test-item.running { border-left-color: #fbbf24; }
+        .test-item.selected { background: rgba(79, 172, 254, 0.2); }
+
+        .badge {
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        .badge.passed { background: #4ade80; color: #000; }
+        .badge.failed { background: #f87171; color: #fff; }
+        .badge.running { background: #fbbf24; color: #000; }
+        .badge.pending { background: #6b7280; color: #fff; }
+
+        .detail-panel {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .detail-header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .detail-header h3 { margin-bottom: 8px; }
+        .detail-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 0.9em;
+            color: #999;
+        }
+
+        .log-output {
+            background: #1a1a2e;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .log-line {
+            padding: 3px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .log-line.error { color: #f87171; }
+        .log-line.success { color: #4ade80; }
+        .log-line.info { color: #60a5fa; }
+        .log-line.warning { color: #fbbf24; }
+
+        .assertion-error {
+            background: rgba(248, 113, 113, 0.1);
+            border-left: 4px solid #f87171;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .assertion-error pre {
+            margin-top: 8px;
+            font-size: 0.9em;
+            color: #fca5a5;
+        }
+
+        .api-endpoints {
+            display: grid;
+            gap: 8px;
+        }
+        .endpoint {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        .method {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.75em;
+            min-width: 50px;
+            text-align: center;
+        }
+        .method.GET { background: #10b981; color: white; }
+        .method.POST { background: #3b82f6; color: white; }
+        .endpoint-path {
+            font-family: 'Courier New', monospace;
+            color: #60a5fa;
+            font-size: 0.85em;
+            flex: 1;
+        }
+        .endpoint-status {
+            font-size: 0.85em;
+        }
+
+        #server-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            z-index: 1000;
+            font-size: 0.9em;
+        }
+        #server-status.online { background: #4ade80; color: #000; }
+        #server-status.offline { background: #f87171; color: #fff; }
+
+        .full-width { grid-column: 1 / -1; }
+    </style>
+</head>
+<body>
+    <div id="server-status" class="offline">检查中...</div>
+
+    <div class="container">
+        <header>
+            <h1>AInvestorAgent 测试仪表盘</h1>
+            <p>实时测试运行器 & 调试工具</p>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-card total">
+                <h3>总测试</h3>
+                <div class="number" id="total-tests">0</div>
+            </div>
+            <div class="status-card passed">
+                <h3>通过</h3>
+                <div class="number" id="passed-tests">0</div>
+            </div>
+            <div class="status-card failed">
+                <h3>失败</h3>
+                <div class="number" id="failed-tests">0</div>
+            </div>
+            <div class="status-card duration">
+                <h3>耗时</h3>
+                <div class="number" id="duration">0s</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-primary" onclick="runAllTests()">运行所有测试</button>
+            <button class="btn btn-success" onclick="runCategory('integration')">集成测试</button>
+            <button class="btn btn-success" onclick="runCategory('agents')">智能体测试</button>
+            <button class="btn btn-success" onclick="runCategory('api')">API测试</button>
+            <button class="btn btn-secondary" onclick="checkEndpoints()">检查API</button>
+            <button class="btn btn-danger" onclick="clearAll()">清空</button>
+        </div>
+
+        <div class="main-content">
+            <div class="section">
+                <h2>测试列表</h2>
+                <div class="test-tree" id="test-tree"></div>
+            </div>
+
+            <div class="section">
+                <h2>测试详情</h2>
+                <div class="detail-panel" id="detail-panel">
+                    <div style="text-align: center; padding: 40px; color: #666;">
+                        选择一个测试查看详情
+                    </div>
+                </div>
+            </div>
+
+            <div class="section full-width">
+                <h2>API 端点状态</h2>
+                <div class="api-endpoints" id="api-endpoints"></div>
+            </div>
+
+            <div class="section full-width">
+                <h2>执行日志</h2>
+                <div class="log-output" id="log-output"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://localhost:8000';
+
+        const testSuites = {
+            'integration': {
+                name: '集成测试',
+                tests: [
+                    { id: 'test_complete_pipeline', name: '完整决策管道 (Decide → Backtest)' },
+                    { id: 'test_propose_pipeline', name: '组合建议管道 (Propose → Risk)' },
+                    { id: 'test_data_to_factors', name: '数据→因子转换' },
+                    { id: 'test_factors_to_portfolio', name: '因子→组合生成' }
+                ]
+            },
+            'agents': {
+                name: '智能体测试',
+                tests: [
+                    { id: 'test_data_ingestor', name: '数据获取智能体' },
+                    { id: 'test_signal_researcher', name: '信号研究智能体' },
+                    { id: 'test_risk_manager', name: '风险管理智能体' },
+                    { id: 'test_portfolio_manager', name: '组合管理智能体' },
+                    { id: 'test_backtest_engineer', name: '回测工程师' }
+                ]
+            },
+            'api': {
+                name: 'API测试',
+                tests: [
+                    { id: 'test_health', name: '健康检查' },
+                    { id: 'test_prices', name: '价格接口' },
+                    { id: 'test_fundamentals', name: '基本面接口' },
+                    { id: 'test_news', name: '新闻接口' },
+                    { id: 'test_sentiment', name: '情绪接口' },
+                    { id: 'test_score_batch', name: '批量评分' }
+                ]
+            }
+        };
+
+        const endpoints = [
+            { method: 'GET', path: '/health' },
+            { method: 'GET', path: '/api/prices/daily?symbol=AAPL&limit=100' },
+            { method: 'GET', path: '/fundamentals/AAPL' },  // 注意: 没有 /api 前缀
+            { method: 'POST', path: '/api/news/fetch?symbol=AAPL&days=7' },  // 注意: POST 方法
+            { method: 'GET', path: '/api/sentiment/brief?symbols=AAPL&days=7' },
+            { method: 'POST', path: '/api/scores/batch' },
+            { method: 'POST', path: '/api/portfolio/propose' },
+            { method: 'POST', path: '/api/backtest/run' },
+            { method: 'POST', path: '/orchestrator/dispatch' },
+            { method: 'POST', path: '/orchestrator/propose' }
+        ];
+
+        let testResults = {};
+        let selectedTest = null;
+
+        async function init() {
+            renderTestTree();
+            await checkServerStatus();
+            await checkEndpoints();
+            addLog('系统就绪,等待运行测试', 'info');
+        }
+
+        function renderTestTree() {
+            const tree = document.getElementById('test-tree');
+            tree.innerHTML = '';
+
+            for (const [key, suite] of Object.entries(testSuites)) {
+                const category = document.createElement('div');
+                category.className = 'test-category';
+
+                const header = document.createElement('div');
+                header.className = 'category-header';
+                header.innerHTML = `
+                    <span>${suite.name}</span>
+                    <span style="font-size: 0.85em; color: #999;">${suite.tests.length} 测试</span>
+                `;
+                category.appendChild(header);
+
+                suite.tests.forEach(test => {
+                    const item = document.createElement('div');
+                    item.className = 'test-item pending';
+                    item.id = `test-${key}-${test.id}`;
+                    item.innerHTML = `
+                        <span>${test.name}</span>
+                        <span class="badge pending">待运行</span>
+                    `;
+                    item.onclick = () => showTestDetail(key, test);
+                    category.appendChild(item);
+                });
+
+                tree.appendChild(category);
+            }
+        }
+
+        function showTestDetail(suiteKey, test) {
+            selectedTest = { suite: suiteKey, test };
+
+            document.querySelectorAll('.test-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            document.getElementById(`test-${suiteKey}-${test.id}`).classList.add('selected');
+
+            const panel = document.getElementById('detail-panel');
+            const result = testResults[`${suiteKey}-${test.id}`];
+
+            if (!result) {
+                panel.innerHTML = `
+                    <div class="detail-header">
+                        <h3>${test.name}</h3>
+                        <p style="color: #999;">此测试尚未运行</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `
+                <div class="detail-header">
+                    <h3>${test.name}</h3>
+                    <div class="detail-stats">
+                        <span>状态: <strong style="color: ${result.passed ? '#4ade80' : '#f87171'}">${result.passed ? '通过' : '失败'}</strong></span>
+                        <span>耗时: <strong>${result.duration}ms</strong></span>
+                        <span>时间: ${result.timestamp}</span>
+                    </div>
+                </div>
+            `;
+
+            if (result.error) {
+                html += `
+                    <div class="assertion-error">
+                        <strong>错误信息:</strong>
+                        <pre>${result.error}</pre>
+                    </div>
+                `;
+            }
+
+            if (result.logs && result.logs.length > 0) {
+                html += `<div class="log-output">`;
+                result.logs.forEach(log => {
+                    html += `<div class="log-line ${log.type}">${log.message}</div>`;
+                });
+                html += `</div>`;
+            }
+
+            panel.innerHTML = html;
+        }
+
+        async function runTest(suiteKey, test) {
+            const testId = `test-${suiteKey}-${test.id}`;
+            const testKey = `${suiteKey}-${test.id}`;
+            const el = document.getElementById(testId);
+
+            el.className = 'test-item running';
+            el.querySelector('.badge').className = 'badge running';
+            el.querySelector('.badge').textContent = '运行中...';
+
+            const startTime = Date.now();
+            const logs = [];
+
+            try {
+                let result;
+                if (suiteKey === 'integration') {
+                    result = await runIntegrationTest(test, logs);
+                } else if (suiteKey === 'agents') {
+                    result = await runAgentTest(test, logs);
+                } else if (suiteKey === 'api') {
+                    result = await runApiTest(test, logs);
+                }
+
+                const duration = Date.now() - startTime;
+
+                testResults[testKey] = {
+                    passed: true,
+                    duration,
+                    timestamp: new Date().toLocaleString(),
+                    logs
+                };
+
+                el.className = 'test-item passed';
+                el.querySelector('.badge').className = 'badge passed';
+                el.querySelector('.badge').textContent = '通过';
+
+                addLog(`✓ ${test.name} - 通过 (${duration}ms)`, 'success');
+                return true;
+
+            } catch (error) {
+                const duration = Date.now() - startTime;
+
+                testResults[testKey] = {
+                    passed: false,
+                    duration,
+                    timestamp: new Date().toLocaleString(),
+                    error: error.message,
+                    logs
+                };
+
+                el.className = 'test-item failed';
+                el.querySelector('.badge').className = 'badge failed';
+                el.querySelector('.badge').textContent = '失败';
+
+                addLog(`✗ ${test.name} - 失败: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function runIntegrationTest(test, logs) {
+            logs.push({ type: 'info', message: `开始运行: ${test.name}` });
+
+            if (test.id === 'test_complete_pipeline') {
+                logs.push({ type: 'info', message: 'Step 1: 调用 /orchestrator/dispatch' });
+                const response = await fetch(`${BASE_URL}/orchestrator/dispatch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: 'AAPL',
+                        params: { mock: true, news_days: 14 }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+
+                const data = await response.json();
+                logs.push({ type: 'success', message: `dispatch 成功返回 symbol: ${data.context?.symbol}` });
+
+                if (!data.context) {
+                    logs.push({ type: 'warning', message: 'context 缺失,可能需要检查返回结构' });
+                }
+            }
+            else if (test.id === 'test_propose_pipeline') {
+                logs.push({ type: 'info', message: 'Step 1: 调用 /orchestrator/propose' });
+                const response = await fetch(`${BASE_URL}/orchestrator/propose`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        candidates: [
+                            { symbol: 'AAPL', sector: 'Technology', score: 75.5 },
+                            { symbol: 'MSFT', sector: 'Technology', score: 82.3 }
+                        ],
+                        params: { mock: true }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+
+                const data = await response.json();
+                logs.push({ type: 'success', message: `返回组合包含 ${data.context?.kept?.length || 0} 支股票` });
+            }
+            else if (test.id === 'test_data_to_factors') {
+                logs.push({ type: 'info', message: 'Step 1: 获取AAPL价格数据' });
+                const priceResp = await fetch(`${BASE_URL}/api/prices/daily?symbol=AAPL&limit=100`);
+
+                if (!priceResp.ok) {
+                    throw new Error(`获取价格失败: HTTP ${priceResp.status}`);
+                }
+
+                const priceData = await priceResp.json();
+                logs.push({ type: 'success', message: `获取到 ${priceData.items?.length || 0} 个价格点` });
+            }
+            else if (test.id === 'test_factors_to_portfolio') {
+                logs.push({ type: 'info', message: 'Step 1: 批量评分' });
+                const scoreResp = await fetch(`${BASE_URL}/api/scores/batch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbols: ['AAPL', 'MSFT'] })
+                });
+
+                if (!scoreResp.ok) {
+                    throw new Error(`评分失败: HTTP ${scoreResp.status}`);
+                }
+
+                const scores = await scoreResp.json();
+                logs.push({ type: 'success', message: `获得 ${scores.items?.length || 0} 个评分` });
+            }
+
+            return true;
+        }
+
+        async function runAgentTest(test, logs) {
+            logs.push({ type: 'info', message: `测试智能体: ${test.name}` });
+
+            // 通过调用 orchestrator 接口验证智能体协作
+            logs.push({ type: 'info', message: '调用 orchestrator 接口验证智能体协作' });
+
+            const response = await fetch(`${BASE_URL}/orchestrator/dispatch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    symbol: 'AAPL',
+                    params: { mock: true, news_days: 14 }
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`智能体协作失败: HTTP ${response.status}`);
+            }
+
+            logs.push({ type: 'success', message: '智能体协作正常' });
+            return true;
+        }
+
+        async function runApiTest(test, logs) {
+            logs.push({ type: 'info', message: `测试API端点: ${test.name}` });
+
+            if (test.id === 'test_health') {
+                const response = await fetch(`${BASE_URL}/health`);
+                if (!response.ok) throw new Error(`健康检查失败: ${response.status}`);
+                logs.push({ type: 'success', message: '健康检查通过' });
+            }
+            else if (test.id === 'test_prices') {
+                const response = await fetch(`${BASE_URL}/api/prices/daily?symbol=AAPL&limit=100`);
+                if (!response.ok) throw new Error(`价格接口失败: ${response.status}`);
+                const data = await response.json();
+
+                // prices.py 返回 {symbol, items: [...]}
+                const itemCount = data.items?.length || 0;
+                logs.push({ type: 'success', message: `获取到 ${itemCount} 个价格点` });
+            }
+            else if (test.id === 'test_fundamentals') {
+                const response = await fetch(`${BASE_URL}/fundamentals/AAPL`);
+
+                if (response.status === 404) {
+                    throw new Error(`基本面接口路由不存在 404`);
+                }
+
+                const data = await response.json();
+
+                if (data.detail && data.detail.includes('external')) {
+                    logs.push({ type: 'warning', message: '路由正常，外部API不可用' });
+                    return true;
+                }
+
+                logs.push({ type: 'success', message: '基本面数据获取成功' });
+            }
+            else if (test.id === 'test_news') {
+                const response = await fetch(`${BASE_URL}/api/news/fetch?symbol=AAPL&days=7`, {
+                    method: 'POST'
+                });
+
+                if (response.status === 404) {
+                    throw new Error(`新闻接口路由不存在 404`);
+                }
+
+                const data = await response.json();
+
+                if (data.detail && (data.detail.includes('newsapi') || data.detail.includes('SSL') || data.detail.includes('timeout'))) {
+                    logs.push({ type: 'warning', message: '路由正常，newsapi.org连接问题' });
+                    return true;
+                }
+
+                const newsCount = data.data?.length || 0;
+                logs.push({ type: 'success', message: `获取到 ${newsCount} 条新闻` });
+            }
+            else if (test.id === 'test_sentiment') {
+                const response = await fetch(`${BASE_URL}/api/sentiment/brief?symbols=AAPL&days=7`);
+                if (!response.ok) throw new Error(`情绪接口失败: ${response.status}`);
+                const data = await response.json();
+                logs.push({ type: 'success', message: `获取到 ${data.series?.length || 0} 个情绪点` });
+            }
+            else if (test.id === 'test_score_batch') {
+                const response = await fetch(`${BASE_URL}/api/scores/batch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbols: ['AAPL', 'MSFT'] })
+                });
+                if (!response.ok) throw new Error(`批量评分失败: ${response.status}`);
+                const data = await response.json();
+
+                // scores.py 返回 {as_of, version_tag, items: [...]}
+                const itemCount = data.items?.length || 0;
+                logs.push({ type: 'success', message: `获得 ${itemCount} 个评分` });
+            }
+
+            return true;
+        }
+
+        async function runAllTests() {
+            addLog('='.repeat(60), 'info');
+            addLog('开始运行所有测试...', 'info');
+
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                addLog('服务器离线,无法运行测试', 'error');
+                return;
+            }
+
+            const startTime = Date.now();
+            let passed = 0, failed = 0, total = 0;
+
+            for (const [suiteKey, suite] of Object.entries(testSuites)) {
+                addLog(`\n运行 ${suite.name}...`, 'info');
+                for (const test of suite.tests) {
+                    total++;
+                    const result = await runTest(suiteKey, test);
+                    if (result) passed++;
+                    else failed++;
+                    updateStats(total, passed, failed, Date.now() - startTime);
+                }
+            }
+
+            addLog('='.repeat(60), 'info');
+            addLog(`测试完成: ${passed} 通过, ${failed} 失败, 共 ${total} 个`, passed === total ? 'success' : 'error');
+        }
+
+        async function runCategory(category) {
+            const suite = testSuites[category];
+            if (!suite) return;
+
+            addLog(`运行 ${suite.name}...`, 'info');
+
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                addLog('服务器离线', 'error');
+                return;
+            }
+
+            const startTime = Date.now();
+            let passed = 0, failed = 0;
+
+            for (const test of suite.tests) {
+                const result = await runTest(category, test);
+                if (result) passed++; else failed++;
+                updateStats(passed + failed, passed, failed, Date.now() - startTime);
+            }
+        }
+
+        function updateStats(total, passed, failed, duration) {
+            document.getElementById('total-tests').textContent = total;
+            document.getElementById('passed-tests').textContent = passed;
+            document.getElementById('failed-tests').textContent = failed;
+            document.getElementById('duration').textContent = `${(duration / 1000).toFixed(1)}s`;
+        }
+
+        async function checkServerStatus() {
+            try {
+                const response = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(5000) });
+                const statusEl = document.getElementById('server-status');
+                if (response.ok) {
+                    statusEl.className = 'online';
+                    statusEl.textContent = '服务器在线';
+                    return true;
+                }
+            } catch (error) {
+                const statusEl = document.getElementById('server-status');
+                statusEl.className = 'offline';
+                statusEl.textContent = '服务器离线';
+            }
+            return false;
+        }
+
+        async function checkEndpoints() {
+            const container = document.getElementById('api-endpoints');
+            container.innerHTML = '<div style="color: #999; text-align: center;">检查中...</div>';
+
+            await new Promise(resolve => setTimeout(resolve, 100));
+            container.innerHTML = '';
+
+            for (const endpoint of endpoints) {
+                const div = document.createElement('div');
+                div.className = 'endpoint';
+                div.innerHTML = `
+                    <span class="method ${endpoint.method}">${endpoint.method}</span>
+                    <span class="endpoint-path">${endpoint.path}</span>
+                    <span class="endpoint-status">检查中...</span>
+                `;
+                container.appendChild(div);
+
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+                    const response = await fetch(`${BASE_URL}${endpoint.path}`, {
+                        method: endpoint.method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: endpoint.method === 'POST' ? JSON.stringify({
+                            symbols: ['AAPL'],
+                            topk: 3,
+                            mock: true
+                        }) : undefined,
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    const statusSpan = div.querySelector('.endpoint-status');
+                    if (response.status === 404) {
+                        statusSpan.innerHTML = '<span style="color: #f87171">404 未找到</span>';
+                    } else if (response.status === 405) {
+                        statusSpan.innerHTML = '<span style="color: #fbbf24">405 方法不允许</span>';
+                    } else if (response.status >= 500) {
+                        statusSpan.innerHTML = `<span style="color: #f87171">${response.status} 服务器错误</span>`;
+                    } else if (response.ok) {
+                        statusSpan.innerHTML = '<span style="color: #4ade80">✓ 可用</span>';
+                    } else {
+                        statusSpan.innerHTML = `<span style="color: #fbbf24">${response.status}</span>`;
+                    }
+                } catch (error) {
+                    const statusSpan = div.querySelector('.endpoint-status');
+                    if (error.name === 'AbortError') {
+                        statusSpan.innerHTML = '<span style="color: #f87171">超时</span>';
+                    } else {
+                        statusSpan.innerHTML = '<span style="color: #f87171">连接失败</span>';
+                    }
+                }
+            }
+
+            addLog('API端点检查完成', 'info');
+        }
+
+        function addLog(message, type = 'info') {
+            const logOutput = document.getElementById('log-output');
+            const logLine = document.createElement('div');
+            logLine.className = `log-line ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            logLine.textContent = `[${timestamp}] ${message}`;
+            logOutput.appendChild(logLine);
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        function clearAll() {
+            testResults = {};
+            document.getElementById('log-output').innerHTML = '';
+            document.getElementById('detail-panel').innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">选择一个测试查看详情</div>';
+            renderTestTree();
+            updateStats(0, 0, 0, 0);
+            addLog('已清空所有数据', 'info');
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

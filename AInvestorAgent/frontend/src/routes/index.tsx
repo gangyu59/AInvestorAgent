@@ -78,19 +78,25 @@ export default function ImprovedDashboard() {
     setError(null);
 
     try {
-      // 只修改 onDecide 函数中的 fetch 调用：
       const response = await fetch("http://localhost:8000/orchestrator/decide", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          symbols: symbols,
-          topk: 5,
-          use_llm: true
+          symbols: symbols,  // ✅ 已有
+          topk: 15,          // 改为 15（与测试页一致）
+          min_score: 55,     // 添加这个必需字段
+          params: {          // 添加风控参数
+            'risk.max_stock': 0.3,
+            'risk.max_sector': 0.5,
+            'risk.count_range': [5, 15]
+          },
+          mock: false        // 生产环境用 false
         })
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const errText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errText}`);
       }
 
       const decideData = await response.json();
@@ -109,8 +115,8 @@ export default function ImprovedDashboard() {
         context: {
           weights,
           kept,
-          orders: [],
-          version_tag: "ai_v1.3"
+          orders: decideData?.orders || [],
+          version_tag: decideData?.version_tag || "ai_v1.3"
         }
       });
 
@@ -118,14 +124,14 @@ export default function ImprovedDashboard() {
       console.error("AI决策失败:", error);
       setError(`AI决策失败: ${error instanceof Error ? error.message : '未知错误'}`);
 
-      // 保持原有的模拟数据作为后备
+      // 后备方案
       setTimeout(() => {
         setDecide({
           context: {
             weights: { AAPL: 0.3, MSFT: 0.25, NVDA: 0.2, GOOGL: 0.25 },
             kept: ["AAPL", "MSFT", "NVDA", "GOOGL"],
             orders: [],
-            version_tag: "ai_v1.3"
+            version_tag: "fallback_v1.0"
           }
         });
         setLoading(false);

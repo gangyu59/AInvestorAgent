@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from backend.factors.momentum import momentum_return, _last_close
 from typing import Dict, List, Optional
 from datetime import date
 from sqlalchemy.orm import Session

@@ -29,10 +29,13 @@ from backend.api.viz import router as viz_router
 from backend.api.trace import router as trace_router
 from backend.api.routers import sim
 from backend.api.routers import analyze
-from backend.api.routers import sentiment   # 新增
+from backend.api.routers import sentiment
 from backend.api.routers import llm as llm_router_api
 from backend.api.routers import decide
 from backend.api.routers import simulation
+from backend.api.routers import validation
+from backend.api.routers import testing
+
 
 from fastapi.staticfiles import StaticFiles
 
@@ -88,6 +91,8 @@ app.include_router(sentiment.router, prefix="/api")
 app.include_router(llm_router_api.router)
 app.include_router(decide.router)
 app.include_router(simulation.router)
+app.include_router(validation.router)
+app.include_router(testing.router)
 
 app.router.lifespan_context = lifespan
 

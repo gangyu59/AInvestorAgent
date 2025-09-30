@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AInvestorAgent 测试仪表盘</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3e 100%);
+            color: #e0e0e0;
+            padding: 20px;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            height: calc(100vh - 40px);
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            flex-shrink: 0;
+        }
+        h1 {
+            font-size: 1.8em;
+            background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 5px;
+        }
+
+        .status-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-shrink: 0;
+        }
+        .status-card {
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            text-align: center;
+        }
+        .status-card h3 { font-size: 0.75em; color: #999; margin-bottom: 5px; }
+        .status-card .number { font-size: 1.8em; font-weight: bold; }
+        .status-card.passed .number { color: #4ade80; }
+        .status-card.failed .number { color: #f87171; }
+        .status-card.total .number { color: #60a5fa; }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85em;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn:hover { transform: translateY(-1px); }
+        .btn-primary { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); color: white; }
+        .btn-secondary { background: rgba(255, 255, 255, 0.1); color: #e0e0e0; }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 15px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .section h2 {
+            margin-bottom: 12px;
+            color: #4facfe;
+            font-size: 1.1em;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 8px;
+            flex-shrink: 0;
+        }
+
+        .test-tree {
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .test-category {
+            margin-bottom: 8px;
+        }
+        .category-header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 6px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9em;
+            margin-bottom: 4px;
+        }
+        .category-header:hover { background: rgba(255, 255, 255, 0.15); }
+
+        .test-item {
+            padding: 6px 10px;
+            margin-left: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            margin-bottom: 3px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 3px solid transparent;
+            font-size: 0.85em;
+        }
+        .test-item:hover { background: rgba(255, 255, 255, 0.1); }
+        .test-item.passed { border-left-color: #4ade80; }
+        .test-item.failed { border-left-color: #f87171; }
+        .test-item.running { border-left-color: #fbbf24; }
+
+        .badge {
+            padding: 2px 6px;
+            border-radius: 8px;
+            font-size: 0.7em;
+            font-weight: 600;
+        }
+        .badge.passed { background: #4ade80; color: #000; }
+        .badge.failed { background: #f87171; color: #fff; }
+        .badge.running { background: #fbbf24; color: #000; }
+        .badge.pending { background: #6b7280; color: #fff; }
+
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            min-height: 0;
+        }
+
+        .log-section {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-output {
+            background: #1a1a2e;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            flex: 1;
+            min-height: 0;
+        }
+        .log-line {
+            padding: 2px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .log-line.error { color: #f87171; }
+        .log-line.success { color: #4ade80; }
+        .log-line.info { color: #60a5fa; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧪 AInvestorAgent 测试仪表盘</h1>
+            <p style="font-size: 0.9em; color: #888;">点击测试项右侧按钮运行 - 绿灯通过 / 红灯失败</p>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-card total">
+                <h3>总测试</h3>
+                <div class="number" id="totalCount">0</div>
+            </div>
+            <div class="status-card passed">
+                <h3>✓ 通过</h3>
+                <div class="number" id="passedCount">0</div>
+            </div>
+            <div class="status-card failed">
+                <h3>✗ 失败</h3>
+                <div class="number" id="failedCount">0</div>
+            </div>
+            <div class="status-card">
+                <h3>通过率</h3>
+                <div class="number" id="passRate" style="color: #a78bfa; font-size: 1.5em;">0%</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-primary" onclick="runAllTests()">运行全部</button>
+            <button class="btn btn-secondary" onclick="clearResults()">清除结果</button>
+            <button class="btn btn-secondary" onclick="downloadLog()">下载日志</button>
+        </div>
+
+        <div class="main-content">
+            <div class="section">
+                <h2>测试列表</h2>
+                <div class="test-tree" id="testContainer"></div>
+            </div>
+
+            <div class="right-panel">
+                <div class="section log-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h2 style="margin: 0;">测试日志</h2>
+                        <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8em;" onclick="copyAllLogs()">
+                            复制日志
+                        </button>
+                    </div>
+                    <div class="log-output" id="logContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000';
+
+        // 真实的测试文件配置 - 基于你的实际tests/目录结构
+        const TEST_SUITES = {
+            'tests/agents': {
+                title: '🤖 智能体测试',
+                tests: [
+                    'test_all_agents.py',
+                    'test_agent_coordination.py',
+                    'test_data_ingestor.py',
+                    'test_data_cleaner.py',
+                    'test_signal_researcher.py',
+                    'test_backtest_engineer.py',
+                    'test_risk_manager.py',
+                    'test_portfolio_manager.py'
+                ]
+            },
+            'tests/integration': {
+                title: '🔗 集成测试',
+                tests: [
+                    'test_end_to_end.py',
+                    'test_agent_pipeline.py',
+                    'test_api_integration.py',
+                    'test_orchestrator_flow.py'
+                ]
+            },
+            'tests/validation': {
+                title: '✓ 验证测试',
+                tests: [
+                    'test_data_quality.py',
+                    'test_data_consistency.py',
+                    'test_factor_ic.py',
+                    'test_sentiment_accuracy.py',
+                    'test_backtest_accuracy.py'
+                ]
+            },
+            'tests/regression': {
+                title: '📸 回归测试',
+                tests: [
+                    'test_scores_snapshot.py',
+                    'test_portfolio_snapshot.py',
+                    'test_api_contract.py'
+                ]
+            },
+            'tests/performance': {
+                title: '⚡ 性能测试',
+                tests: [
+                    'test_latency.py',
+                    'test_throughput.py',
+                    'test_concurrent.py'
+                ]
+            },
+            'tests/stress': {
+                title: '💪 压力测试',
+                tests: [
+                    'test_market_crash.py',
+                    'test_extreme_scenarios.py',
+                    'test_failure_recovery.py',
+                    'test_data_overflow.py',
+                    'test_resource_exhaustion.py'
+                ]
+            },
+            'tests/security': {
+                title: '🔒 安全测试',
+                tests: [
+                    'test_injection.py',
+                    'test_xss.py',
+                    'test_authentication.py',
+                    'test_authorization.py',
+                    'test_data_sanitization.py'
+                ]
+            },
+            'tests/ui': {
+                title: '🎨 UI测试',
+                tests: [
+                    'test_homepage.py',
+                    'test_stock_page.py',
+                    'test_portfolio_page.py',
+                    'test_simulator_page.py',
+                    'test_charts.py',
+                    'test_navigation.py',
+                    'test_responsiveness.py'
+                ]
+            }
+        };
+
+        let testResults = {};
+
+        function initTests() {
+            const container = document.getElementById('testContainer');
+            let totalTests = 0;
+
+            Object.entries(TEST_SUITES).forEach(([path, suite]) => {
+                totalTests += suite.tests.length;
+
+                const section = document.createElement('div');
+                section.className = 'test-category';
+
+                const header = document.createElement('div');
+                header.className = 'category-header';
+                header.innerHTML = `
+                    <span>${suite.title}</span>
+                    <span style="font-size: 0.85em; color: #999;">${suite.tests.length}个</span>
+                `;
+                section.appendChild(header);
+
+                suite.tests.forEach((testFile, idx) => {
+                    const testKey = `${path}/${testFile}`;
+                    const item = document.createElement('div');
+                    item.className = 'test-item';
+                    item.id = `test-${path}-${idx}`;
+                    item.innerHTML = `
+                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${testFile}</span>
+                        <button class="btn btn-primary" style="padding: 3px 10px; font-size: 0.75em; margin-left: 8px;" onclick="runTest('${path}', '${testFile}', ${idx})">
+                            运行
+                        </button>
+                    `;
+                    section.appendChild(item);
+                });
+
+                container.appendChild(section);
+            });
+
+            document.getElementById('totalCount').textContent = totalTests;
+            addLog(`系统就绪，共 ${totalTests} 个测试文件`);
+        }
+
+        async function runTest(path, testFile, idx) {
+            const testKey = `${path}/${testFile}`;
+            const itemEl = document.getElementById(`test-${path}-${idx}`);
+
+            itemEl.className = 'test-item running';
+            addLog(`\n${'='.repeat(60)}`, 'info');
+            addLog(`▶ 运行: ${testFile}`, 'info');
+            addLog(`路径: ${testKey}`, 'info');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/testing/run`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file: testKey,
+                        test: null
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+
+                if (result.passed) {
+                    itemEl.className = 'test-item passed';
+                    testResults[testKey] = { passed: true };
+                    addLog(`✓ 测试通过 (${result.duration}s)`, 'success');
+                    addLog(`摘要: ${result.summary}`, 'success');
+                } else {
+                    itemEl.className = 'test-item failed';
+                    testResults[testKey] = { passed: false };
+                    addLog(`✗ 测试失败 (${result.duration}s)`, 'error');
+                    addLog(`摘要: ${result.summary}`, 'error');
+
+                    // 显示完整输出
+                    if (result.stderr) {
+                        addLog(`\nSTDERR输出:`, 'error');
+                        addLog(result.stderr, 'error');
+                    }
+
+                    if (result.stdout) {
+                        addLog(`\nSTDOUT输出:`, 'info');
+                        addLog(result.stdout, 'info');
+                    }
+                }
+
+            } catch (error) {
+                itemEl.className = 'test-item failed';
+                testResults[testKey] = { passed: false };
+                addLog(`✗ 请求失败: ${error.message}`, 'error');
+                addLog(`\n可能原因:`, 'error');
+                addLog(`- 后端未启动 (运行: python run.py)`, 'error');
+                addLog(`- 端口不对 (检查是否在 8000 端口)`, 'error');
+                addLog(`- CORS问题 (使用 http-server 打开HTML)`, 'error');
+            }
+
+            addLog(`${'='.repeat(60)}\n`, 'info');
+            updateStats();
+        }
+
+        async function runAllTests() {
+            addLog('========================================', 'info');
+            addLog('开始运行所有测试...', 'info');
+
+            for (const [path, suite] of Object.entries(TEST_SUITES)) {
+                for (let idx = 0; idx < suite.tests.length; idx++) {
+                    await runTest(path, suite.tests[idx], idx);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+
+            addLog('========================================', 'info');
+            addLog('测试完成', 'success');
+        }
+
+        function updateStats() {
+            let passed = 0, failed = 0;
+            Object.values(testResults).forEach(r => {
+                if (r.passed) passed++;
+                else failed++;
+            });
+
+            const total = passed + failed;
+            const rate = total > 0 ? ((passed / total) * 100).toFixed(0) : 0;
+
+            document.getElementById('passedCount').textContent = passed;
+            document.getElementById('failedCount').textContent = failed;
+            document.getElementById('passRate').textContent = rate + '%';
+        }
+
+        function clearResults() {
+            testResults = {};
+            document.querySelectorAll('.test-item').forEach(el => {
+                el.className = 'test-item';
+            });
+            document.getElementById('logContent').innerHTML = '';
+            updateStats();
+            addLog('已清除所有结果');
+        }
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('logContent');
+            const line = document.createElement('div');
+            line.className = `log-line ${type}`;
+            const time = new Date().toLocaleTimeString();
+            line.textContent = `[${time}] ${message}`;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function downloadLog() {
+            const logText = Array.from(document.querySelectorAll('.log-line'))
+                .map(el => el.textContent)
+                .join('\n');
+
+            const blob = new Blob([logText], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `test-log-${new Date().toISOString().split('T')[0]}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function copyAllLogs() {
+            const logText = Array.from(document.querySelectorAll('.log-line'))
+                .map(el => el.textContent)
+                .join('\n');
+
+            if (!logText) {
+                alert('暂无日志可复制');
+                return;
+            }
+
+            navigator.clipboard.writeText(logText).then(() => {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '已复制!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            }).catch(err => {
+                alert('复制失败：' + err.message);
+            });
+        }
+
+        window.onload = initTests;
+    </script>
+</body>
+</html>
