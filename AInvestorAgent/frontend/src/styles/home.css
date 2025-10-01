@@ -181,26 +181,50 @@ body{
   border: 1px solid #1f2a36;
   border-radius: 12px;
   overflow: hidden;
-  cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;  /* 新增：为绝对定位的按钮提供参照 */
 }
 
 .dashboard-card:hover {
   border-color: #3b82f6;
-  transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(59, 130, 246, 0.15);
 }
 
 .dashboard-card-header {
   padding: 20px 20px 16px 20px;
   border-bottom: 1px solid #1f2a36;
+  display: flex;                    /* 新增：弹性布局 */
+  justify-content: space-between;   /* 新增：两端对齐 */
+  align-items: center;              /* 新增：垂直居中 */
+  gap: 12px;                        /* 新增：标题和按钮之间的间距 */
 }
 
 .dashboard-card-title {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+  flex: 1;                          /* 新增：标题占据剩余空间 */
+  min-width: 0;                     /* 新增：允许标题在必要时缩小 */
 }
+
+.dashboard-card-header button {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #3b82f6;  /* 添加这行：蓝色文字 */
+}
+
+.dashboard-card-header button:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 4px;
+  color: #60a5fa;  /* 添加这行：hover时变亮 */
+}
+
 
 .dashboard-card-body {
   padding: 20px;
@@ -771,4 +795,82 @@ select{
 /* 强制修复顶部遮挡问题 */
 .dashboard-content {
   padding-top: 80px !important;
+}
+
+/* Watchlist 卡片优化 */
+.dashboard-watchlist-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #111827;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.dashboard-watchlist-item:hover {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.dashboard-watchlist-symbol {
+  font-weight: 600;
+  font-size: 14px;
+  color: #e5e7eb;
+}
+
+.dashboard-watchlist-detail-btn {
+  opacity: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dashboard-watchlist-item:hover .dashboard-watchlist-detail-btn {
+  opacity: 1;
+}
+
+.dashboard-watchlist-detail-btn:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+/* Watchlist 优化 */
+.dashboard-watchlist-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #111827;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+.dashboard-watchlist-item:hover {
+  background: #1f2937;
+  border-color: #374151;
+}
+.dashboard-watchlist-symbol {
+  font-weight: 600;
+  font-size: 14px;
+  color: #e5e7eb;
+}
+.dashboard-watchlist-detail-btn {
+  opacity: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.dashboard-watchlist-item:hover .dashboard-watchlist-detail-btn {
+  opacity: 1;
 }
