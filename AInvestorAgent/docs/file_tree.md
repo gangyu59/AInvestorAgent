@@ -27,6 +27,7 @@ AInvestorAgent/
 │   │   │   ├── __init__.py
 │   │   │   ├── analyze.py
 │   │   │   ├── backtest.py
+│   │   │   ├── batch_update.py
 │   │   │   ├── decide.py
 │   │   │   ├── fundamentals.py
 │   │   │   ├── health.py
@@ -42,6 +43,7 @@ AInvestorAgent/
 │   │   │   ├── sim.py
 │   │   │   ├── simulation.py
 │   │   │   ├── symbols.py
+│   │   │   ├── testing.py
 │   │   │   └── validation.py
 │   │   ├── schemas/
 │   │   │   ├── __init__.py
@@ -175,6 +177,7 @@ AInvestorAgent/
 │   ├── ARCHITECTURE.md
 │   ├── CHANGELOG.md
 │   ├── DATA_DICTIONARY.md
+│   ├── file_tree.md
 │   ├── FUNCTIONAL_SPEC.md
 │   └── UI_GUIDE.md
 ├── frontend/
@@ -202,7 +205,17 @@ AInvestorAgent/
 │   │   │   ├── common/
 │   │   │   │   ├── ErrorState.tsx
 │   │   │   │   ├── Loader.tsx
+│   │   │   │   ├── LoadingOverlay.tsx
+│   │   │   │   ├── SearchBox.tsx
 │   │   │   │   └── Tag.tsx
+│   │   │   ├── dashboard/
+│   │   │   │   ├── Footer.tsx
+│   │   │   │   ├── Header.tsx
+│   │   │   │   ├── MarketSentiment.tsx
+│   │   │   │   ├── PortfolioOverview.tsx
+│   │   │   │   ├── QuickActions.tsx
+│   │   │   │   ├── StockScores.tsx
+│   │   │   │   └── WatchlistPanel.tsx
 │   │   │   ├── layout/
 │   │   │   │   ├── Sidebar.tsx
 │   │   │   │   └── Topbar.tsx
@@ -218,6 +231,7 @@ AInvestorAgent/
 │   │   │   └── appConfig.ts
 │   │   ├── routes/
 │   │   │   ├── index.tsx
+│   │   │   ├── index_old.tsx
 │   │   │   ├── manage.tsx
 │   │   │   ├── monitor.tsx
 │   │   │   ├── portfolio.tsx
@@ -335,6 +349,7 @@ AInvestorAgent/
 │   │   └── test_resource_exhaustion.py
 │   ├── ui/
 │   │   ├── __init__.py
+│   │   ├── conftest.py
 │   │   ├── test_charts.py
 │   │   ├── test_homepage.py
 │   │   ├── test_navigation.py
@@ -362,8 +377,11 @@ AInvestorAgent/
 │   ├── README.md
 │   ├── run_visual_tests.sh
 │   ├── test_cases_detailed.py
+│   ├── test_dashboard.html
+│   ├── test_progress.json
 │   ├── test_runner.py
 │   ├── TESTING_GUIDE.md
+│   ├── update_test_progress.py
 │   └── visual_dashboard.html
 ├── tools/
 │   ├── db_backup.py
