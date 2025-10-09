@@ -11,15 +11,13 @@ import { MarketSentiment } from "../components/dashboard/MarketSentiment";
 import { DashboardFooter } from "../components/dashboard/Footer";
 import { DecisionTracking } from "../components/dashboard/DecisionTracking";
 import { DecisionHistoryModal } from "../components/dashboard/DecisionHistoryModal";
+import { API_BASE } from "../services/endpoints";
 
-interface Stock {
-  symbol: string;
-  name?: string;
-  sector?: string;
-}
+const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
 
 export default function Dashboard() {
-  const [watchlist, setWatchlist] = useState<Stock[]>([]);
+  const [symbols] = useState<string[]>(DEFAULT_SYMBOLS);
+
   const [decide, setDecide] = useState<any>(null);
   const [scores, setScores] = useState<any[]>([]);
   const [sentiment, setSentiment] = useState<any>(null);
@@ -38,64 +36,7 @@ export default function Dashboard() {
     result: null as any,
   });
 
-  // 从 localStorage 加载关注列表
-  useEffect(() => {
-    const stored = localStorage.getItem("watchlist");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setWatchlist(parsed);
-      } catch (e) {
-        console.error("解析关注列表失败:", e);
-        // 使用默认列表
-        const defaultList = [
-          { symbol: "AAPL", name: "Apple Inc.", sector: "Technology" },
-          { symbol: "MSFT", name: "Microsoft", sector: "Technology" },
-          { symbol: "NVDA", name: "NVIDIA", sector: "Technology" },
-          { symbol: "GOOGL", name: "Alphabet", sector: "Technology" },
-          { symbol: "AMZN", name: "Amazon", sector: "Consumer" },
-        ];
-        setWatchlist(defaultList);
-        localStorage.setItem("watchlist", JSON.stringify(defaultList));
-      }
-    } else {
-      // 首次使用，设置默认列表
-      const defaultList = [
-        { symbol: "AAPL", name: "Apple Inc.", sector: "Technology" },
-        { symbol: "MSFT", name: "Microsoft", sector: "Technology" },
-        { symbol: "NVDA", name: "NVIDIA", sector: "Technology" },
-        { symbol: "GOOGL", name: "Alphabet", sector: "Technology" },
-        { symbol: "AMZN", name: "Amazon", sector: "Consumer" },
-      ];
-      setWatchlist(defaultList);
-      localStorage.setItem("watchlist", JSON.stringify(defaultList));
-    }
-  }, []);
-
-  // 监听 localStorage 变化(从管理页面返回时更新)
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const stored = localStorage.getItem("watchlist");
-      if (stored) {
-        try {
-          setWatchlist(JSON.parse(stored));
-        } catch (e) {
-          console.error("解析关注列表失败:", e);
-        }
-      }
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    // 也监听 hash 变化(从管理页返回)
-    window.addEventListener("hashchange", handleStorageChange);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("hashchange", handleStorageChange);
-    };
-  }, []);
-
-  // 首屏示例数据
+  // ===== 首屏示例数据（按你原结构）=====
   useEffect(() => {
     setSnapshot({
       weights: { AAPL: 0.25, MSFT: 0.2, NVDA: 0.15, AMZN: 0.2, GOOGL: 0.2 },
@@ -128,6 +69,7 @@ export default function Dashboard() {
     });
   }, []);
 
+  // ==== 修复类型：确保 Object.entries 返回 [string, number][] ====
   const keptTop5: Array<[string, number]> = useMemo(() => {
     const weights: Record<string, number> = (snapshot && snapshot.weights) || {};
     return Object.entries(weights)
@@ -135,35 +77,89 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [snapshot]);
 
-  // 从关注列表中移除股票
-  const handleRemoveFromWatchlist = (symbol: string) => {
-    if (!confirm(`确定要移除 ${symbol} 吗?`)) return;
-
-    const newList = watchlist.filter((s) => s.symbol !== symbol);
-    setWatchlist(newList);
-    localStorage.setItem("watchlist", JSON.stringify(newList));
-  };
-
+  // ===== 🔧 修复：真正的智能决策函数 =====
   async function onDecide() {
+    console.log("🎯 首页：开始智能决策");
+    console.log("📋 使用股票列表:", symbols);
+
     setLoadingState({
       visible: true,
-      message: "智能决策中",
+      message: "AI 正在分析市场...",
       progress: 0,
-      steps: ["🔍 拉取最新数据", "🧮 计算因子指标", "📊 综合评分", "⚖️ 风险检查", "💼 生成组合"],
+      steps: [
+        "📊 拉取最新数据",
+        "🧮 计算因子指标",
+        "📈 综合评分",
+        "⚖️ 风险检查",
+        "💼 生成组合"
+      ],
       currentStep: 0,
       showResult: false,
       result: null,
     });
 
     try {
-      for (let i = 0; i < 5; i++) {
-        await new Promise((r) => setTimeout(r, 300));
-        setLoadingState((prev) => ({ ...prev, currentStep: i, progress: (i + 1) * 20 }));
+      // 步骤 1: 模拟数据拉取
+      setLoadingState(prev => ({ ...prev, currentStep: 0, progress: 20 }));
+      await new Promise(r => setTimeout(r, 300));
+
+      // 步骤 2-4: 模拟计算过程
+      for (let i = 1; i < 4; i++) {
+        setLoadingState(prev => ({ ...prev, currentStep: i, progress: 20 + i * 15 }));
+        await new Promise(r => setTimeout(r, 300));
       }
-      setLoadingState((prev) => ({ ...prev, showResult: true, result: { ok: true } }));
-    } catch (e) {
-      setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null });
-      setError("AI决策失败");
+
+      // 步骤 5: 调用真实 API
+      setLoadingState(prev => ({ ...prev, currentStep: 4, progress: 80, message: "生成投资组合..." }));
+
+      console.log("📡 调用 portfolio/propose API");
+      const response = await fetch(`${API_BASE}/api/portfolio/propose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API 返回错误: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("✅ 组合生成成功:", data);
+
+      // 显示成功结果
+      setLoadingState(prev => ({
+        ...prev,
+        progress: 100,
+        showResult: true,
+        result: {
+          ok: true,
+          snapshot_id: data.snapshot_id,
+          holdings_count: data.holdings?.length || 0,
+          message: `成功生成 ${data.holdings?.length || 0} 只股票的投资组合`
+        }
+      }));
+
+      // 2秒后自动跳转
+      setTimeout(() => {
+        console.log("🔄 跳转到 portfolio 页面");
+        // 方式1: 直接传 symbols 参数让 portfolio 页面调用 API
+        window.location.hash = `#/portfolio?symbols=${encodeURIComponent(symbols.join(','))}`;
+
+        // 方式2: 如果有 snapshot_id，直接跳转到快照
+        // window.location.hash = `#/portfolio?sid=${data.snapshot_id}`;
+      }, 2000);
+
+    } catch (e: any) {
+      console.error("❌ 智能决策失败:", e);
+      setLoadingState(prev => ({
+        ...prev,
+        showResult: true,
+        result: {
+          ok: false,
+          message: e?.message || "AI决策失败，请稍后重试"
+        }
+      }));
+      setError(e?.message || "AI决策失败");
     }
   }
 
@@ -175,34 +171,21 @@ export default function Dashboard() {
     const blob = new Blob(["# 报告示例"], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = "report.md";
-    a.click();
+    a.href = url; a.download = "report.md"; a.click();
     URL.revokeObjectURL(url);
   }
 
   function onBatchUpdate() {
     setLoadingState({
-      visible: true,
-      message: "一键更新数据",
-      progress: 40,
-      steps: ["📈 价格", "📰 新闻", "🧮 因子", "⭐ 评分"],
-      currentStep: 1,
-      showResult: false,
-      result: null,
+      visible: true, message: "一键更新数据", progress: 40,
+      steps: ["📈 价格", "📰 新闻", "🧮 因子", "⭐ 评分"], currentStep: 1, showResult: false, result: null,
     });
-    setTimeout(
-      () =>
-        setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null }),
-      1200
-    );
+    setTimeout(() => setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null }), 1200);
   }
 
-  const handleResultClose = () =>
+  const handleResultClose = () => {
     setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null });
-
-  // 提取股票代码数组
-  const symbolList = watchlist.map((s) => s.symbol);
+  };
 
   return (
     <div className="dashboard-content">
@@ -215,7 +198,15 @@ export default function Dashboard() {
         showResult={loadingState.showResult}
         result={loadingState.result}
         onResultClose={handleResultClose}
-        onViewPortfolio={() => (window.location.hash = "#/portfolio")}
+        onViewPortfolio={() => {
+          // 如果有 snapshot_id，跳转到快照查看
+          if (loadingState.result?.snapshot_id) {
+            window.location.hash = `#/portfolio?sid=${loadingState.result.snapshot_id}`;
+          } else {
+            // 否则跳转到创建页面
+            window.location.hash = `#/portfolio?symbols=${encodeURIComponent(symbols.join(','))}`;
+          }
+        }}
         onRunBacktest={onRunBacktest}
       />
 
@@ -226,7 +217,7 @@ export default function Dashboard() {
       />
 
       <DashboardHeader
-        watchlist={symbolList}
+        watchlist={symbols}
         onDecide={onDecide}
         onBacktest={onRunBacktest}
         onReport={onGenerateReport}
@@ -236,15 +227,13 @@ export default function Dashboard() {
       {errorMsg && (
         <div className="dashboard-error">
           {errorMsg}
-          <button onClick={() => setError(null)} className="ml-4 text-white underline">
-            关闭
-          </button>
+          <button onClick={() => setError(null)} className="ml-4 text-white underline">关闭</button>
         </div>
       )}
 
       <section className="grid-12 gap-16 first-row equalize">
         <div className="col-3 col-md-12 card-slot">
-          <WatchlistPanel list={symbolList} onRemove={handleRemoveFromWatchlist} />
+          <WatchlistPanel list={symbols} />
         </div>
         <div className="col-6 col-md-12 card-slot">
           <PortfolioOverview snapshot={snapshot} keptTop5={keptTop5} onDecide={onDecide} />

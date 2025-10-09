@@ -1,0 +1,556 @@
+/* frontend/src/styles/portfolio-card.css */
+
+/* ============================================
+   投资组合卡片样式
+   用于 Dashboard 中的 PortfolioCard 组件
+   ============================================ */
+
+/* 主卡片容器 */
+.portfolio-card {
+  position: relative;
+  overflow: visible; /* 允许阴影溢出 */
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.portfolio-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.25);
+}
+
+/* 持仓行样式 */
+.portfolio-card .holdings-row {
+  padding: 8px 0;
+  transition: all 0.2s ease;
+}
+
+.portfolio-card .holdings-row:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 指标行样式 */
+.portfolio-card .metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+}
+
+.portfolio-card .metric-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* frontend/src/styles/portfolio-card.css */
+
+/* ============================================
+   投资组合卡片样式
+   用于 Dashboard 中的 PortfolioCard 组件
+   ============================================ */
+
+/* 主卡片容器 */
+.portfolio-card {
+  position: relative;
+  overflow: visible; /* 允许阴影溢出 */
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.portfolio-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.25);
+}
+
+/* 持仓行样式 */
+.portfolio-card .holdings-row {
+  padding: 8px 0;
+  transition: all 0.2s ease;
+}
+
+.portfolio-card .holdings-row:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 指标行样式 */
+.portfolio-card .metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+}
+
+.portfolio-card .metric-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.portfolio-card .metric-row .label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.portfolio-card .metric-row .value {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 趋势指示器 */
+.portfolio-card .trend-up {
+  color: #10b981; /* 绿色 */
+}
+
+.portfolio-card .trend-down {
+  color: #ef4444; /* 红色 */
+}
+
+.portfolio-card .trend-neutral {
+  color: #6b7280; /* 灰色 */
+}
+
+/* 进度条样式 */
+.portfolio-card .progress-bar {
+  position: relative;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.portfolio-card .progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 权重进度条变体 */
+.portfolio-card .weights-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.portfolio-card .weights-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+/* 标签和徽章 */
+.portfolio-card .badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  background: rgba(102, 126, 234, 0.2);
+  color: #93c5fd;
+}
+
+/* 快速操作按钮 */
+.portfolio-card .quick-action-btn {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.portfolio-card .quick-action-btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.portfolio-card .quick-action-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.portfolio-card .quick-action-btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text, #e5e7eb);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.portfolio-card .quick-action-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* 卡片底部（AI建议区域） */
+.portfolio-card-footer {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  border-top: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.portfolio-card-footer p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary, #d1d5db);
+}
+
+.portfolio-card-footer button {
+  margin-top: 8px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #60a5fa;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  transition: color 0.2s ease;
+}
+
+.portfolio-card-footer button:hover {
+  color: #93c5fd;
+}
+
+/* 空状态样式 */
+.portfolio-card .empty-state {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.portfolio-card .empty-state p {
+  color: var(--text-secondary, #9ca3af);
+  margin-bottom: 16px;
+}
+
+/* 加载状态 */
+.portfolio-card .loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+}
+
+.portfolio-card .skeleton-line {
+  height: 16px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 25%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.05) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+.portfolio-card .skeleton-line.short {
+  width: 60%;
+}
+
+.portfolio-card .skeleton-line.medium {
+  width: 80%;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* 统计网格布局 */
+.portfolio-card .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.portfolio-card .stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+}
+
+.portfolio-card .stat-label {
+  color: var(--text-secondary, #9ca3af);
+}
+
+.portfolio-card .stat-value {
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
+  color: var(--text, #e5e7eb);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .portfolio-card .holdings-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .portfolio-card .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .portfolio-card-footer {
+    padding: 12px;
+  }
+}
+
+/* 深色主题适配 */
+@media (prefers-color-scheme: dark) {
+  .portfolio-card {
+    background: var(--card-bg, #1f2937);
+    border-color: var(--border, #374151);
+  }
+
+  .portfolio-card:hover {
+    border-color: #667eea;
+  }
+}
+
+/* 动画效果 */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.portfolio-card.animate-in {
+  animation: fade-in-up 0.6s ease-out;
+}
+
+/* 工具提示样式 */
+.portfolio-card [title] {
+  cursor: help;
+  position: relative;
+}
+
+/* 刷新按钮特殊样式 */
+.portfolio-card .refresh-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.portfolio-card .refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: rotate(90deg);
+}
+
+.portfolio-card .refresh-btn:active {
+  transform: rotate(180deg);
+}
+
+/* 持仓权重可视化 */
+.portfolio-card .weight-visual {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.portfolio-card .weight-bar-container {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.portfolio-card .weight-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+  transition: width 0.4s ease;
+  border-radius: 4px;
+}
+
+.portfolio-card .weight-label {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #e5e7eb);
+  min-width: 50px;
+  text-align: right;
+}
+
+/* 股票代码链接样式 */
+.portfolio-card .symbol-link {
+  color: #60a5fa;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  text-decoration: none;
+}
+
+.portfolio-card .symbol-link:hover {
+  color: #93c5fd;
+  text-decoration: underline;
+}
+
+/* 评分徽章 */
+.portfolio-card .score-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+.portfolio-card .score-badge.high {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+
+.portfolio-card .score-badge.medium {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+.portfolio-card .score-badge.low {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+/* 版本标签 */
+.portfolio-card .version-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+/* 分隔线 */
+.portfolio-card .divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 100%
+  );
+  margin: 16px 0;
+}
+
+/* 元信息区域 */
+.portfolio-card .meta-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  color: var(--text-secondary, #9ca3af);
+}
+
+/* 图标样式 */
+.portfolio-card .icon {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  text-align: center;
+  font-size: 16px;
+  line-height: 20px;
+}
+
+/* 网格容器优化 */
+.portfolio-card .two-column-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 16px;
+}
+
+@media (max-width: 1024px) {
+  .portfolio-card .two-column-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+/* 操作按钮组 */
+.portfolio-card .action-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.portfolio-card .action-buttons button {
+  flex: 1;
+}
+
+/* 过渡效果 */
+.portfolio-card * {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* 卡片进入动画延迟 */
+.portfolio-card .holdings-row:nth-child(1) { animation-delay: 0.1s; }
+.portfolio-card .holdings-row:nth-child(2) { animation-delay: 0.2s; }
+.portfolio-card .holdings-row:nth-child(3) { animation-delay: 0.3s; }
+.portfolio-card .holdings-row:nth-child(4) { animation-delay: 0.4s; }
+.portfolio-card .holdings-row:nth-child(5) { animation-delay: 0.5s; }
+
+/* 确保在所有主题下都有良好的对比度 */
+.portfolio-card {
+  --card-bg: #1f2937;
+  --text: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --border: #374151;
+  --primary: #667eea;
+  --primary-hover: #764ba2;
+  --success: #10b981;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+}
+
+/* 亮色主题变量 */
+@media (prefers-color-scheme: light) {
+  .portfolio-card {
+    --card-bg: #ffffff;
+    --text: #1f2937;
+    --text-secondary: #6b7280;
+    --border: #e5e7eb;
+  }
+}
