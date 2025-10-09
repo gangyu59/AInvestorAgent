@@ -12,11 +12,14 @@ import { DashboardFooter } from "../components/dashboard/Footer";
 import { DecisionTracking } from "../components/dashboard/DecisionTracking";
 import { DecisionHistoryModal } from "../components/dashboard/DecisionHistoryModal";
 
-const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
+interface Stock {
+  symbol: string;
+  name?: string;
+  sector?: string;
+}
 
 export default function Dashboard() {
-  const [symbols] = useState<string[]>(DEFAULT_SYMBOLS);
-
+  const [watchlist, setWatchlist] = useState<Stock[]>([]);
   const [decide, setDecide] = useState<any>(null);
   const [scores, setScores] = useState<any[]>([]);
   const [sentiment, setSentiment] = useState<any>(null);
@@ -35,7 +38,64 @@ export default function Dashboard() {
     result: null as any,
   });
 
-  // ===== 首屏示例数据（按你原结构）=====
+  // 从 localStorage 加载关注列表
+  useEffect(() => {
+    const stored = localStorage.getItem("watchlist");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setWatchlist(parsed);
+      } catch (e) {
+        console.error("解析关注列表失败:", e);
+        // 使用默认列表
+        const defaultList = [
+          { symbol: "AAPL", name: "Apple Inc.", sector: "Technology" },
+          { symbol: "MSFT", name: "Microsoft", sector: "Technology" },
+          { symbol: "NVDA", name: "NVIDIA", sector: "Technology" },
+          { symbol: "GOOGL", name: "Alphabet", sector: "Technology" },
+          { symbol: "AMZN", name: "Amazon", sector: "Consumer" },
+        ];
+        setWatchlist(defaultList);
+        localStorage.setItem("watchlist", JSON.stringify(defaultList));
+      }
+    } else {
+      // 首次使用，设置默认列表
+      const defaultList = [
+        { symbol: "AAPL", name: "Apple Inc.", sector: "Technology" },
+        { symbol: "MSFT", name: "Microsoft", sector: "Technology" },
+        { symbol: "NVDA", name: "NVIDIA", sector: "Technology" },
+        { symbol: "GOOGL", name: "Alphabet", sector: "Technology" },
+        { symbol: "AMZN", name: "Amazon", sector: "Consumer" },
+      ];
+      setWatchlist(defaultList);
+      localStorage.setItem("watchlist", JSON.stringify(defaultList));
+    }
+  }, []);
+
+  // 监听 localStorage 变化(从管理页面返回时更新)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const stored = localStorage.getItem("watchlist");
+      if (stored) {
+        try {
+          setWatchlist(JSON.parse(stored));
+        } catch (e) {
+          console.error("解析关注列表失败:", e);
+        }
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    // 也监听 hash 变化(从管理页返回)
+    window.addEventListener("hashchange", handleStorageChange);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("hashchange", handleStorageChange);
+    };
+  }, []);
+
+  // 首屏示例数据
   useEffect(() => {
     setSnapshot({
       weights: { AAPL: 0.25, MSFT: 0.2, NVDA: 0.15, AMZN: 0.2, GOOGL: 0.2 },
@@ -68,7 +128,6 @@ export default function Dashboard() {
     });
   }, []);
 
-  // ==== 修复类型：确保 Object.entries 返回 [string, number][] ====
   const keptTop5: Array<[string, number]> = useMemo(() => {
     const weights: Record<string, number> = (snapshot && snapshot.weights) || {};
     return Object.entries(weights)
@@ -76,7 +135,15 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [snapshot]);
 
-  // ===== 操作函数（保持你的逻辑写法）=====
+  // 从关注列表中移除股票
+  const handleRemoveFromWatchlist = (symbol: string) => {
+    if (!confirm(`确定要移除 ${symbol} 吗?`)) return;
+
+    const newList = watchlist.filter((s) => s.symbol !== symbol);
+    setWatchlist(newList);
+    localStorage.setItem("watchlist", JSON.stringify(newList));
+  };
+
   async function onDecide() {
     setLoadingState({
       visible: true,
@@ -108,20 +175,34 @@ export default function Dashboard() {
     const blob = new Blob(["# 报告示例"], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "report.md"; a.click();
+    a.href = url;
+    a.download = "report.md";
+    a.click();
     URL.revokeObjectURL(url);
   }
 
   function onBatchUpdate() {
     setLoadingState({
-      visible: true, message: "一键更新数据", progress: 40,
-      steps: ["📈 价格", "📰 新闻", "🧮 因子", "⭐ 评分"], currentStep: 1, showResult: false, result: null,
+      visible: true,
+      message: "一键更新数据",
+      progress: 40,
+      steps: ["📈 价格", "📰 新闻", "🧮 因子", "⭐ 评分"],
+      currentStep: 1,
+      showResult: false,
+      result: null,
     });
-    setTimeout(() => setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null }), 1200);
+    setTimeout(
+      () =>
+        setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null }),
+      1200
+    );
   }
 
   const handleResultClose = () =>
     setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null });
+
+  // 提取股票代码数组
+  const symbolList = watchlist.map((s) => s.symbol);
 
   return (
     <div className="dashboard-content">
@@ -145,7 +226,7 @@ export default function Dashboard() {
       />
 
       <DashboardHeader
-        watchlist={symbols}
+        watchlist={symbolList}
         onDecide={onDecide}
         onBacktest={onRunBacktest}
         onReport={onGenerateReport}
@@ -155,13 +236,15 @@ export default function Dashboard() {
       {errorMsg && (
         <div className="dashboard-error">
           {errorMsg}
-          <button onClick={() => setError(null)} className="ml-4 text-white underline">关闭</button>
+          <button onClick={() => setError(null)} className="ml-4 text-white underline">
+            关闭
+          </button>
         </div>
       )}
 
       <section className="grid-12 gap-16 first-row equalize">
         <div className="col-3 col-md-12 card-slot">
-          <WatchlistPanel list={symbols} />
+          <WatchlistPanel list={symbolList} onRemove={handleRemoveFromWatchlist} />
         </div>
         <div className="col-6 col-md-12 card-slot">
           <PortfolioOverview snapshot={snapshot} keptTop5={keptTop5} onDecide={onDecide} />

@@ -36,7 +36,7 @@ from backend.api.routers import simulation
 from backend.api.routers import validation
 from backend.api.routers import testing
 from backend.api.routers import batch_update
-
+from backend.api.routers import symbols
 
 from fastapi.staticfiles import StaticFiles
 
@@ -95,6 +95,7 @@ app.include_router(simulation.router)
 app.include_router(validation.router)
 app.include_router(testing.router)
 app.include_router(batch_update.router)
+app.include_router(symbols.router)
 
 app.router.lifespan_context = lifespan
 
