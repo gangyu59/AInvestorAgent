@@ -194,10 +194,25 @@ export default function PortfolioPage() {
 
   // 跳转回测
   function goToBacktest() {
-    if (!resp?.snapshot_id) {
-      alert("当前无有效快照，请先生成组合。");
+    if (!resp?.holdings?.length) {
+      alert("当前无有效持仓，请先生成组合。");
       return;
     }
+
+    console.log("🔄 跳转回测，持仓数量:", resp.holdings.length);
+    console.log("📦 持仓详情:", resp.holdings);
+
+    // 把 holdings 数据存到 sessionStorage
+    sessionStorage.setItem('backtestHoldings', JSON.stringify({
+      holdings: resp.holdings.map(h => ({
+        symbol: h.symbol,
+        weight: h.weight
+      })),
+      snapshot_id: resp.snapshot_id,
+      as_of: resp.as_of
+    }));
+
+    // 跳转到 simulator 页面
     window.location.hash = `#/simulator?sid=${encodeURIComponent(resp.snapshot_id)}`;
   }
 

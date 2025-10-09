@@ -1,6 +1,6 @@
 // 完整修复后的 simulator.tsx
 import { useEffect, useState, useRef } from "react";
-import { BACKTEST_RUN, PRICES } from "../services/endpoints";
+import { API_BASE } from "../services/endpoints";
 
 const NAV_COLOR = "#6ea8fe";
 const BM_COLOR  = "#ffd43b";
@@ -15,14 +15,27 @@ type BacktestResponse = {
   version_tag?: string;
   backtest_id?: string;
 };
+
+type Holding = {
+  symbol: string;
+  weight: number;
+};
+
 type PricePoint = { date: string; close: number };
 
+const BACKTEST_RUN = `${API_BASE}/api/backtest/run`;
+// 🔧 修复：使用正确的快照端点
+const PORTFOLIO_PROPOSE = `${API_BASE}/api/portfolio/propose`;
+const PRICES = (symbol: string, days: number) => `${API_BASE}/api/prices/daily?symbol=${symbol}&limit=${days}`;
+
 export default function SimulatorPage() {
-  const [pool, setPool] = useState("AAPL, MSFT, NVDA");
+  // 🔧 修复：不设默认值，等待从 URL 或快照加载
+  const [pool, setPool] = useState("");
   const [bt, setBt] = useState<BacktestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
+  const hasInitialized = useRef(false);
 
   // 从 URL 读取 sid（由 Portfolio 页跳转而来）
   function readSid(): string | null {
@@ -33,20 +46,105 @@ export default function SimulatorPage() {
     return sp.get("sid") || sp.get("snapshot_id");
   }
 
-  async function apiRunBacktestBySnapshot(snapshot_id: string): Promise<BacktestResponse> {
+  // 🔧 修复：优先从 sessionStorage 读取
+  async function fetchSnapshotData(snapshot_id: string): Promise<{ holdings: Holding[] } | null> {
+    try {
+      // 🔧 方案0：从 sessionStorage 读取（Portfolio 页面传递的数据）
+      console.log("📡 方案0：检查 sessionStorage");
+      const cached = sessionStorage.getItem('backtestHoldings');
+      if (cached) {
+        try {
+          const data = JSON.parse(cached);
+          if (data.holdings && Array.isArray(data.holdings) && data.holdings.length > 0) {
+            console.log("✅ 方案0成功，从 sessionStorage 读取:", data);
+            // 清除缓存，避免下次误用
+            sessionStorage.removeItem('backtestHoldings');
+            return data;
+          }
+        } catch (e) {
+          console.warn("⚠️ sessionStorage 数据解析失败");
+        }
+      }
+
+      console.log("📡 方案1：尝试直接获取快照", snapshot_id);
+
+      // 方案1：尝试直接获取（如果后端支持）
+      try {
+        const r = await fetch(`${API_BASE}/api/portfolio/snapshots/${snapshot_id}`);
+        if (r.ok) {
+          const data = await r.json();
+          console.log("✅ 方案1成功，快照数据:", data);
+          return data;
+        }
+      } catch (e) {
+        console.log("⚠️ 方案1失败，尝试方案2");
+      }
+
+      // 方案2：如果快照端点不存在，通过 propose 重新生成（使用默认池）
+      console.log("📡 方案2：使用默认股票池重新生成");
+      const defaultSymbols = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "COST", "LLY"];
+
+      const r = await fetch(PORTFOLIO_PROPOSE, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: defaultSymbols }),
+      });
+
+      if (!r.ok) {
+        console.error("❌ 方案2也失败了");
+        return null;
+      }
+
+      const data = await r.json();
+      console.log("✅ 方案2成功，重新生成的数据:", data);
+      return data;
+
+    } catch (e) {
+      console.error("❌ 获取快照数据异常:", e);
+      return null;
+    }
+  }
+
+  // 🔧 修复：使用正确的参数格式调用回测 API
+  async function apiRunBacktest(holdings: Holding[]): Promise<BacktestResponse> {
+    console.log("📡 调用回测 API");
+    console.log("📦 holdings 数据:", holdings);
+
+    // ✅ 后端期望的格式：weights 是一个数组 List[WeightItem]
+    const weights = holdings.map(h => ({
+      symbol: h.symbol,
+      weight: h.weight
+    }));
+
+    console.log("📦 转换后的 weights 数组:", weights);
+
+    const requestBody = {
+      weights: weights,  // List[WeightItem] 格式
+      window: "1Y",
+      trading_cost: 0.001,
+      rebalance: "weekly",
+      benchmark_symbol: "SPY"
+    };
+
+    console.log("📦 完整请求体:", requestBody);
+
     const r = await fetch(BACKTEST_RUN, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        snapshot_id,
-        window_days: 252,
-        trading_cost: 0.001,
-        mock: false,
-        benchmark_symbol: "SPY"
-      }),
+      body: JSON.stringify(requestBody),
     });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
+
+    console.log("📨 响应状态:", r.status);
+
+    if (!r.ok) {
+      const errorText = await r.text();
+      console.error("❌ API 错误:", errorText);
+      throw new Error(`HTTP ${r.status}: ${errorText}`);
+    }
+
+    const result = await r.json();
+    console.log("✅ 回测结果:", result);
+    return result;
   }
 
   async function fetchPriceSeries(symbol: string, opts: { limit?: number } = {}): Promise<PricePoint[]> {
@@ -80,43 +178,73 @@ export default function SimulatorPage() {
     }
   }
 
-  // 修复后的 run 函数：移除 localStorage 检查，避免重复逻辑
+  // 🔧 修复：主回测函数
   async function run() {
-    console.log("DEBUG: 开始回测");
+    console.log("🎯 开始回测");
     setLoading(true);
     setErr(null);
 
     const sid = readSid();
-    const symbols = pool.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-
-    console.log("DEBUG: snapshot_id =", sid);
-    console.log("DEBUG: symbols =", symbols);
+    console.log("📋 snapshot_id =", sid);
 
     try {
-      // 1) 如果有 sid，优先使用后端回测
+      // 方案1: 如果有 snapshot_id，先获取快照数据，再用 holdings 调用回测
       if (sid) {
-        console.log("DEBUG: 尝试使用 snapshot_id 回测");
-        try {
-          const r = await apiRunBacktestBySnapshot(sid);
-          console.log("DEBUG: snapshot 回测结果:", r);
-          if (r && (r.nav?.length || r.dates?.length)) {
-            setBt(r);
-            return;
+        console.log("🔄 使用快照回测");
+        const snapshot = await fetchSnapshotData(sid);
+
+        if (snapshot && snapshot.holdings && snapshot.holdings.length > 0) {
+          console.log("✅ 获取到持仓数据:", snapshot.holdings);
+
+          // 🔧 修复：更新输入框显示当前回测的股票
+          const symbols = snapshot.holdings.map(h => h.symbol);
+          const symbolsStr = symbols.join(", ");
+          console.log("📝 更新输入框为:", symbolsStr);
+          setPool(symbolsStr);
+
+          try {
+            const result = await apiRunBacktest(snapshot.holdings);
+
+            if (result && (result.nav?.length || result.dates?.length)) {
+              console.log("✅ 回测成功");
+              setBt(result);
+              return;
+            } else {
+              console.warn("⚠️ 回测返回空数据");
+            }
+          } catch (e) {
+            console.error("❌ 后端回测失败:", e);
+            setErr(`后端回测失败: ${(e as any)?.message}`);
+            // 继续降级到前端回测
           }
-        } catch (e) {
-          console.warn("DEBUG: snapshot 回测失败:", e);
+        } else {
+          console.warn("⚠️ 快照无持仓数据");
         }
       }
 
-      // 2) 前端等权重回测兜底
-      console.log("DEBUG: 开始前端等权重回测");
+      // 方案2: 前端等权重回测兜底
+      console.log("🔄 使用前端等权重回测");
+      const symbols = pool.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+
       if (symbols.length === 0) {
-        setErr("请提供有效的股票代码");
+        // 如果输入框也是空的，使用默认股票池
+        const defaultSymbols = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
+        console.log("📝 使用默认股票池:", defaultSymbols);
+        setPool(defaultSymbols.join(", "));
+
+        const local = await localEqualWeightBacktest(defaultSymbols, fetchPriceSeries);
+        console.log("✅ 前端回测结果:", local);
+
+        if (local.nav?.length) {
+          setBt(local);
+        } else {
+          setErr("回测未产生有效数据");
+        }
         return;
       }
 
       const local = await localEqualWeightBacktest(symbols, fetchPriceSeries);
-      console.log("DEBUG: 前端回测结果:", local);
+      console.log("✅ 前端回测结果:", local);
 
       if (local.nav?.length) {
         setBt(local);
@@ -124,7 +252,7 @@ export default function SimulatorPage() {
         setErr("回测未产生有效数据");
       }
     } catch (e: any) {
-      console.error("DEBUG: 回测总体失败:", e);
+      console.error("❌ 回测总体失败:", e);
       setErr(e?.message || "回测失败");
     } finally {
       setLoading(false);
@@ -180,104 +308,92 @@ export default function SimulatorPage() {
     a.remove();
   }
 
-  // 在 SimulatorPage 组件中添加一个 ref 来防止重复执行
-  const hasProcessed = useRef(false);
-
+  // 🔧 修复：自动触发回测
   useEffect(() => {
-    if (hasProcessed.current) return; // 防止重复执行
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
 
-    const urlParams = new URLSearchParams(window.location.hash.split('?')[1] || '');
-    const fromBacktest = urlParams.get('from') === 'backtest';
+    const sid = readSid();
+    console.log("🔍 Simulator 页面加载，snapshot_id =", sid);
 
-    if (fromBacktest) {
-      if (window.latestBacktestData) {
-        console.log("DEBUG: 使用全局变量数据:", window.latestBacktestData);
-        setBt(window.latestBacktestData);
-        delete window.latestBacktestData;
-        hasProcessed.current = true; // 标记已处理
-        return;
-      }
-
-      console.warn("DEBUG: 全局变量中没有数据，调用 run()");
+    if (sid) {
+      console.log("🎯 检测到 snapshot_id，自动触发回测");
       void run();
-      hasProcessed.current = true; // 标记已处理
+    } else {
+      console.log("📌 无 snapshot_id，等待手动触发");
     }
   }, []);
 
-
   return (
     <div className="page">
-      {/* 修复：合并重复的页面头部 */}
       <div className="page-header" style={{gap: 8}}>
-        <h2>回测与模拟</h2>
-
-        {/* 临时调试按钮 */}
-        <button
-          className="btn"
-          onClick={() => {
-            console.log("localStorage 内容:", localStorage.getItem('latestBacktestResult'));
-            console.log("当前 bt 状态:", bt);
-          }}
-        >
-          调试检查
-        </button>
+        <h2>📊 回测与模拟</h2>
 
         <input
-          defaultValue={pool}
-          onBlur={(e) => setPool(e.currentTarget.value)}
+          value={pool}
+          onChange={(e) => setPool(e.currentTarget.value)}
           style={{minWidth: 340}}
           placeholder="无 sid 时，使用这里的股票池做等权兜底回测"
         />
         <button className="btn btn-primary" onClick={run} disabled={loading}>
-          {loading ? "回测中…" : "重新回测"}
+          {loading ? "🔄 回测中…" : "🎯 重新回测"}
         </button>
-        <button className="btn" onClick={exportPNG} disabled={!bt}>导出 PNG</button>
-        <button className="btn" onClick={exportCSV} disabled={!bt}>导出 CSV</button>
+        <button className="btn" onClick={exportPNG} disabled={!bt}>📥 导出 PNG</button>
+        <button className="btn" onClick={exportCSV} disabled={!bt}>📥 导出 CSV</button>
       </div>
 
       {err && (
-        <div className="card" style={{borderColor: "#ff6b6b"}}>
-          <div className="card-body">{err}</div>
+        <div className="card" style={{borderColor: "#ff6b6b", backgroundColor: "#fff5f5"}}>
+          <div className="card-body" style={{color: "#c92a2a"}}>⚠️ {err}</div>
+        </div>
+      )}
+
+      {loading && !bt && (
+        <div className="card">
+          <div className="card-body" style={{ textAlign: 'center', padding: 40 }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🔄</div>
+            <div style={{ color: '#888' }}>正在运行回测，请稍候...</div>
+          </div>
         </div>
       )}
 
       <div className="card">
         <div className="card-header">
-          <h3>NAV vs Benchmark</h3>
+          <h3>📈 净值曲线 vs 基准</h3>
           {bt && (
-            <div className="hint" style={{opacity: 0.75}}>
-              window={(bt as any)?.params?.window ?? "-"} ·
-              cost={(bt as any)?.params?.cost ?? "-"} ·
-              rebalance={(bt as any)?.params?.rebalance ?? "-"} ·
-              ver={(bt as any)?.version_tag ?? "-"}
+            <div className="hint" style={{opacity: 0.75, fontSize: 12}}>
+              窗口: {(bt as any)?.params?.window ?? "1Y"} ·
+              成本: {((bt as any)?.params?.cost ?? 0.001) * 100}% ·
+              调仓: {(bt as any)?.params?.rebalance ?? "weekly"} ·
+              版本: {(bt as any)?.version_tag ?? "v1.0"}
             </div>
           )}
         </div>
         <div ref={chartRef}>
-          {bt ? <NavChart bt={bt}/> : <div className="card-body">无数据</div>}
+          {bt ? <NavChart bt={bt}/> : <div className="card-body" style={{textAlign: 'center', padding: 40, color: '#888'}}>暂无数据，请先运行回测</div>}
         </div>
       </div>
 
       {/* 回撤图 */}
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="card-header"><h3>回撤</h3></div>
+        <div className="card-header"><h3>📉 最大回撤</h3></div>
         {bt ? (
           <DrawdownChart
             dates={bt.dates || []}
             dd={(bt as any)?.drawdown ?? computeDrawdown(bt.nav || [])}
           />
         ) : (
-          <div className="card-body">无数据</div>
+          <div className="card-body" style={{textAlign: 'center', padding: 40, color: '#888'}}>暂无数据</div>
         )}
       </div>
 
       {/* 指标面板 */}
       {bt && (
         <div className="card" style={{ marginTop: 12 }}>
-          <div className="card-header"><h3>指标</h3></div>
-          <div className="card-body" style={{ display: "flex", gap: 16 }}>
-            <MetricCard label="年化" value={fmtPct(bt.metrics?.ann_return)} />
-            <MetricCard label="Sharpe" value={fmtNum(bt.metrics?.sharpe, 2)} />
+          <div className="card-header"><h3>📊 关键指标</h3></div>
+          <div className="card-body" style={{ display: "flex", gap: 16, flexWrap: 'wrap' }}>
+            <MetricCard label="年化收益" value={fmtPct(bt.metrics?.ann_return)} />
+            <MetricCard label="夏普比率" value={fmtNum(bt.metrics?.sharpe, 2)} />
             <MetricCard label="最大回撤" value={fmtPct((bt as any)?.metrics?.max_dd ?? bt.metrics?.mdd)} />
             <MetricCard label="胜率" value={fmtPct((bt as any)?.metrics?.win_rate)} />
           </div>
@@ -367,16 +483,26 @@ function calcMetricsFromNav(nav: number[], rets: number[]) {
 }
 
 function NavChart({ bt }: { bt: BacktestResponse }) {
-  const W = 940, H = 260, P = 24;
+  const W = 940, H = 300, P = 40; // 增加高度和边距以容纳坐标轴
   const nav = bt.nav || [];
   const bn = bt.benchmark_nav || [];
+  const dates = bt.dates || [];
   const n = Math.max(nav.length, bn.length);
   if (!n) return <div className="card-body">无数据</div>;
 
   const all = [...nav, ...bn].filter((v) => typeof v === "number");
   const min = Math.min(...all), max = Math.max(...all), rng = max - min || 1;
-  const x = (i: number) => P + ((W - 2 * P) * i) / ((n - 1) || 1);
-  const y = (v: number) => P + (H - 2 * P) * (1 - (v - min) / rng);
+
+  // 图表区域
+  const chartLeft = P;
+  const chartRight = W - P;
+  const chartTop = P;
+  const chartBottom = H - P;
+  const chartWidth = chartRight - chartLeft;
+  const chartHeight = chartBottom - chartTop;
+
+  const x = (i: number) => chartLeft + (chartWidth * i) / ((n - 1) || 1);
+  const y = (v: number) => chartTop + chartHeight * (1 - (v - min) / rng);
 
   function path(arr: number[]) {
     let p = "";
@@ -388,15 +514,136 @@ function NavChart({ bt }: { bt: BacktestResponse }) {
     return p.trim();
   }
 
+  // Y轴刻度（净值）
+  const yTicks = 5;
+  const yTickValues = Array.from({ length: yTicks }, (_, i) =>
+    min + (rng * i) / (yTicks - 1)
+  );
+
+  // X轴刻度（日期）
+  const xTicks = Math.min(6, n); // 最多6个刻度
+  const xTickIndices = Array.from({ length: xTicks }, (_, i) =>
+    Math.floor((n - 1) * i / (xTicks - 1))
+  );
+
   return (
     <svg width={W} height={H} style={{ display: "block" }}>
-      <path d={path(nav)} fill="none" stroke={NAV_COLOR} strokeWidth={2} />
+      {/* 背景网格线 */}
+      {yTickValues.map((val, i) => (
+        <line
+          key={`grid-y-${i}`}
+          x1={chartLeft}
+          y1={y(val)}
+          x2={chartRight}
+          y2={y(val)}
+          stroke="currentColor"
+          strokeOpacity={0.1}
+          strokeDasharray="2,2"
+        />
+      ))}
+
+      {/* Y轴 */}
+      <line
+        x1={chartLeft}
+        y1={chartTop}
+        x2={chartLeft}
+        y2={chartBottom}
+        stroke="currentColor"
+        strokeOpacity={0.3}
+      />
+
+      {/* Y轴刻度和标签 */}
+      {yTickValues.map((val, i) => (
+        <g key={`y-tick-${i}`}>
+          <line
+            x1={chartLeft - 5}
+            y1={y(val)}
+            x2={chartLeft}
+            y2={y(val)}
+            stroke="currentColor"
+            strokeOpacity={0.5}
+          />
+          <text
+            x={chartLeft - 10}
+            y={y(val)}
+            fontSize="11"
+            fill="currentColor"
+            textAnchor="end"
+            dominantBaseline="middle"
+            opacity={0.7}
+          >
+            {val.toFixed(2)}
+          </text>
+        </g>
+      ))}
+
+      {/* X轴 */}
+      <line
+        x1={chartLeft}
+        y1={chartBottom}
+        x2={chartRight}
+        y2={chartBottom}
+        stroke="currentColor"
+        strokeOpacity={0.3}
+      />
+
+      {/* X轴刻度和标签 */}
+      {xTickIndices.map((idx, i) => {
+        const date = dates[idx] || "";
+        const displayDate = date.slice(5, 10); // 显示 MM-DD
+        return (
+          <g key={`x-tick-${i}`}>
+            <line
+              x1={x(idx)}
+              y1={chartBottom}
+              x2={x(idx)}
+              y2={chartBottom + 5}
+              stroke="currentColor"
+              strokeOpacity={0.5}
+            />
+            <text
+              x={x(idx)}
+              y={chartBottom + 18}
+              fontSize="11"
+              fill="currentColor"
+              textAnchor="middle"
+              opacity={0.7}
+            >
+              {displayDate}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* 数据线 */}
+      <path d={path(nav)} fill="none" stroke={NAV_COLOR} strokeWidth={2.5} />
       {bn.length > 0 && (
-        <path d={path(bn)} fill="none" stroke={BM_COLOR} strokeWidth={1.5} strokeOpacity={0.9} />
+        <path d={path(bn)} fill="none" stroke={BM_COLOR} strokeWidth={2} strokeOpacity={0.8} />
       )}
-      <text x={W - 120} y={18} fontSize="12">Ann: {fmtPct(bt.metrics?.ann_return)}</text>
-      <text x={W - 120} y={36} fontSize="12">MDD: {fmtPct((bt.metrics?.max_dd ?? bt.metrics?.mdd))}</text>
-      <text x={W - 120} y={54} fontSize="12">Sharpe: {fmtNum(bt.metrics?.sharpe, 2)}</text>
+
+      {/* 图例 */}
+      <g transform={`translate(${W - 140}, 20)`}>
+        <rect x={0} y={0} width={12} height={12} fill={NAV_COLOR} />
+        <text x={18} y={10} fontSize="12" fill="currentColor">组合</text>
+
+        {bn.length > 0 && (
+          <>
+            <rect x={0} y={20} width={12} height={12} fill={BM_COLOR} />
+            <text x={18} y={30} fontSize="12" fill="currentColor">基准 (SPY)</text>
+          </>
+        )}
+      </g>
+
+      {/* 指标文本 */}
+      <text x={W - 140} y={60} fontSize="12" fill="currentColor" opacity={0.8}>
+        Ann: {fmtPct(bt.metrics?.ann_return)}
+      </text>
+      <text x={W - 140} y={78} fontSize="12" fill="currentColor" opacity={0.8}>
+        MDD: {fmtPct((bt.metrics?.max_dd ?? bt.metrics?.mdd))}
+      </text>
+      <text x={W - 140} y={96} fontSize="12" fill="currentColor" opacity={0.8}>
+        Sharpe: {fmtNum(bt.metrics?.sharpe, 2)}
+      </text>
     </svg>
   );
 }
@@ -408,24 +655,173 @@ function computeDrawdown(nav: number[]): number[] {
   return dd;
 }
 function DrawdownChart({ dates, dd }: { dates: string[]; dd: number[] }) {
-  const W = 940, H = 180, P = 24;
-  const n = dd.length; if (!n) return <div className="card-body">无数据</div>;
-  const min = Math.min(...dd), max = Math.max(...dd); const rng = (max - min) || 1;
-  const x = (i: number) => P + ((W - 2 * P) * i) / ((n - 1) || 1);
-  const y = (v: number) => P + (H - 2 * P) * (1 - (v - min) / rng);
-  let d = `M ${x(0)} ${y(0)} `; dd.forEach((v, i) => { d += `L ${x(i)} ${y(v)} `; }); d += `L ${x(n - 1)} ${y(0)} Z`;
+  const W = 940, H = 220, P = 40; // 增加边距
+  const n = dd.length;
+  if (!n) return <div className="card-body">无数据</div>;
+
+  const min = Math.min(...dd);
+  const max = Math.max(...dd, 0); // 确保包含0
+  const rng = (max - min) || 1;
+
+  // 图表区域
+  const chartLeft = P;
+  const chartRight = W - P;
+  const chartTop = P;
+  const chartBottom = H - P;
+  const chartWidth = chartRight - chartLeft;
+  const chartHeight = chartBottom - chartTop;
+
+  const x = (i: number) => chartLeft + (chartWidth * i) / ((n - 1) || 1);
+  const y = (v: number) => chartTop + chartHeight * (1 - (v - min) / rng);
+
+  // 面积路径
+  let areaPath = `M ${x(0)} ${y(0)} `;
+  dd.forEach((v, i) => { areaPath += `L ${x(i)} ${y(v)} `; });
+  areaPath += `L ${x(n - 1)} ${y(0)} Z`;
+
+  // 线条路径
+  const linePath = dd.reduce((p, v, i) => p + `${p ? "L" : "M"} ${x(i)} ${y(v)} `, "");
+
+  // Y轴刻度
+  const yTicks = 5;
+  const yTickValues = Array.from({ length: yTicks }, (_, i) =>
+    min + (rng * i) / (yTicks - 1)
+  );
+
+  // X轴刻度
+  const xTicks = Math.min(6, n);
+  const xTickIndices = Array.from({ length: xTicks }, (_, i) =>
+    Math.floor((n - 1) * i / (xTicks - 1))
+  );
+
   return (
     <svg width={W} height={H} style={{ display: "block" }}>
-      <path d={d} fill="currentColor" fillOpacity={0.15} stroke="none" />
-      <path d={dd.reduce((p,v,i)=>p+`${p?"L":"M"} ${x(i)} ${y(v)} `,"")} fill="none" strokeWidth={1.5} />
+      {/* 背景网格线 */}
+      {yTickValues.map((val, i) => (
+        <line
+          key={`grid-y-${i}`}
+          x1={chartLeft}
+          y1={y(val)}
+          x2={chartRight}
+          y2={y(val)}
+          stroke="currentColor"
+          strokeOpacity={0.1}
+          strokeDasharray="2,2"
+        />
+      ))}
+
+      {/* Y轴 */}
+      <line
+        x1={chartLeft}
+        y1={chartTop}
+        x2={chartLeft}
+        y2={chartBottom}
+        stroke="currentColor"
+        strokeOpacity={0.3}
+      />
+
+      {/* Y轴刻度和标签 */}
+      {yTickValues.map((val, i) => (
+        <g key={`y-tick-${i}`}>
+          <line
+            x1={chartLeft - 5}
+            y1={y(val)}
+            x2={chartLeft}
+            y2={y(val)}
+            stroke="currentColor"
+            strokeOpacity={0.5}
+          />
+          <text
+            x={chartLeft - 10}
+            y={y(val)}
+            fontSize="11"
+            fill="currentColor"
+            textAnchor="end"
+            dominantBaseline="middle"
+            opacity={0.7}
+          >
+            {(val * 100).toFixed(1)}%
+          </text>
+        </g>
+      ))}
+
+      {/* X轴 */}
+      <line
+        x1={chartLeft}
+        y1={chartBottom}
+        x2={chartRight}
+        y2={chartBottom}
+        stroke="currentColor"
+        strokeOpacity={0.3}
+      />
+
+      {/* X轴刻度和标签 */}
+      {xTickIndices.map((idx, i) => {
+        const date = dates[idx] || "";
+        const displayDate = date.slice(5, 10);
+        return (
+          <g key={`x-tick-${i}`}>
+            <line
+              x1={x(idx)}
+              y1={chartBottom}
+              x2={x(idx)}
+              y2={chartBottom + 5}
+              stroke="currentColor"
+              strokeOpacity={0.5}
+            />
+            <text
+              x={x(idx)}
+              y={chartBottom + 18}
+              fontSize="11"
+              fill="currentColor"
+              textAnchor="middle"
+              opacity={0.7}
+            >
+              {displayDate}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* 面积填充 */}
+      <path d={areaPath} fill="currentColor" fillOpacity={0.15} stroke="none" />
+
+      {/* 线条 */}
+      <path d={linePath} fill="none" stroke="currentColor" strokeWidth={2} />
+
+      {/* 最大回撤标注 */}
+      <text x={chartRight - 10} y={20} fontSize="12" fill="currentColor" textAnchor="end" opacity={0.8}>
+        Max: {(min * 100).toFixed(2)}%
+      </text>
     </svg>
   );
 }
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card" style={{ padding: 12, minWidth: 140 }}>
-      <div style={{ opacity: 0.7 }}>{label}</div>
-      <div style={{ fontSize: 20 }}>{value}</div>
+    <div style={{
+      padding: '16px 20px',
+      minWidth: 140,
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      borderRadius: 8,
+      background: 'rgba(255, 255, 255, 0.03)',
+      backdropFilter: 'blur(10px)'
+    }}>
+      <div style={{
+        opacity: 0.7,
+        fontSize: 12,
+        marginBottom: 6,
+        color: 'currentColor'
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 28,
+        fontWeight: 600,
+        color: 'currentColor',
+        fontFamily: 'monospace'
+      }}>
+        {value}
+      </div>
     </div>
   );
 }
