@@ -1,5 +1,7 @@
 // frontend/src/routes/manage.tsx
+// 🔄 已修改: 使用后端API替代localStorage
 import { useEffect, useMemo, useState } from "react";
+import { API_BASE } from "../services/endpoints";
 
 // 导入雷达图组件
 import * as RadarModule from "../components/charts/RadarFactors";
@@ -47,6 +49,66 @@ async function searchSymbol(query: string) {
   }];
 }
 
+// 🔄 新增: Watchlist API调用
+async function fetchWatchlist(): Promise<Stock[]> {
+  try {
+    const resp = await fetch(`${API_BASE}/api/watchlist`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const symbols = await resp.json();
+    // 将symbol数组转换为Stock对象数组
+    return symbols.map((symbol: string) => ({
+      symbol,
+      name: symbol,
+      sector: undefined,
+      addedAt: undefined
+    }));
+  } catch (e) {
+    console.error("获取watchlist失败:", e);
+    return [];
+  }
+}
+
+async function addSymbolToWatchlist(symbol: string): Promise<boolean> {
+  try {
+    const resp = await fetch(`${API_BASE}/api/watchlist/add/${symbol}`, {
+      method: 'POST'
+    });
+    return resp.ok;
+  } catch (e) {
+    console.error("添加失败:", e);
+    return false;
+  }
+}
+
+async function removeSymbolFromWatchlist(symbol: string): Promise<boolean> {
+  try {
+    const resp = await fetch(`${API_BASE}/api/watchlist/remove/${symbol}`, {
+      method: 'DELETE'
+    });
+    return resp.ok;
+  } catch (e) {
+    console.error("删除失败:", e);
+    return false;
+  }
+}
+
+async function clearWatchlistAPI(): Promise<boolean> {
+  try {
+    // 暂时通过逐个删除实现清空
+    const resp = await fetch(`${API_BASE}/api/watchlist`);
+    if (!resp.ok) return false;
+    const symbols = await resp.json();
+
+    for (const symbol of symbols) {
+      await removeSymbolFromWatchlist(symbol);
+    }
+    return true;
+  } catch (e) {
+    console.error("清空失败:", e);
+    return false;
+  }
+}
+
 // ============= 类型定义 =============
 type BatchItem = {
   symbol: string;
@@ -91,7 +153,7 @@ function formatMarketCap(value: number): string {
 
 // ============= 主组件 =============
 export default function ManagePage() {
-  // Tab 切换 - 支持 URL 参数
+  // Tab 切换
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const params = new URLSearchParams(window.location.hash.split("?")[1]);
     const tab = params.get("tab");
@@ -103,6 +165,7 @@ export default function ManagePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Stock[]>([]);
   const [searching, setSearching] = useState(false);
+  const [loadingWatchlist, setLoadingWatchlist] = useState(true);
 
   // 批量评分
   const [rows, setRows] = useState<BatchItem[]>([]);
@@ -113,36 +176,21 @@ export default function ManagePage() {
   const [asc, setAsc] = useState(false);
   const [selectedForPortfolio, setSelectedForPortfolio] = useState<string[]>([]);
 
-  // 初始化 watchlist
+  // 🔄 修改: 从后端API加载watchlist
   useEffect(() => {
-    const stored = localStorage.getItem("watchlist");
-    if (stored) {
-      try {
-        setWatchlist(JSON.parse(stored));
-      } catch (e) {
-        console.error("解析失败:", e);
-        initializeDefaultWatchlist();
-      }
-    } else {
-      initializeDefaultWatchlist();
-    }
+    loadWatchlistFromAPI();
   }, []);
 
-  function initializeDefaultWatchlist() {
-    const defaultList: Stock[] = [
-      { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", addedAt: "2025-01-01" },
-      { symbol: "MSFT", name: "Microsoft", sector: "Technology", addedAt: "2025-01-01" },
-      { symbol: "NVDA", name: "NVIDIA", sector: "Technology", addedAt: "2025-01-02" },
-      { symbol: "GOOGL", name: "Alphabet", sector: "Technology", addedAt: "2025-01-02" },
-      { symbol: "AMZN", name: "Amazon", sector: "Consumer", addedAt: "2025-01-03" },
-      { symbol: "META", name: "Meta Platforms", sector: "Technology", addedAt: "2025-01-03" },
-      { symbol: "TSLA", name: "Tesla", sector: "Automotive", addedAt: "2025-01-04" },
-      { symbol: "AMD", name: "AMD", sector: "Technology", addedAt: "2025-01-04" },
-      { symbol: "AVGO", name: "Broadcom", sector: "Technology", addedAt: "2025-01-05" },
-      { symbol: "ADBE", name: "Adobe", sector: "Technology", addedAt: "2025-01-05" },
-    ];
-    setWatchlist(defaultList);
-    localStorage.setItem("watchlist", JSON.stringify(defaultList));
+  async function loadWatchlistFromAPI() {
+    setLoadingWatchlist(true);
+    try {
+      const data = await fetchWatchlist();
+      setWatchlist(data);
+    } catch (e) {
+      console.error("加载watchlist失败:", e);
+    } finally {
+      setLoadingWatchlist(false);
+    }
   }
 
   // ========== Watchlist 管理功能 ==========
@@ -157,7 +205,6 @@ export default function ManagePage() {
       const results = await searchSymbol(searchQuery);
       setSearchResults(results);
       if (results.length === 0) {
-        // 如果API没有结果,允许用户直接添加输入的代码
         setSearchResults([{
           symbol: searchQuery.toUpperCase(),
           name: "未找到匹配结果 - 点击添加此代码",
@@ -168,7 +215,6 @@ export default function ManagePage() {
       }
     } catch (e) {
       console.error("搜索失败:", e);
-      // 错误时也允许添加
       setSearchResults([{
         symbol: searchQuery.toUpperCase(),
         name: "搜索服务暂时不可用 - 可直接添加代码",
@@ -181,36 +227,46 @@ export default function ManagePage() {
     }
   }
 
-  function addToWatchlist(stock: Stock) {
+  // 🔄 修改: 使用API添加
+  async function addToWatchlist(stock: Stock) {
     if (watchlist.some((s) => s.symbol === stock.symbol)) {
       alert("该股票已在关注列表中");
       return;
     }
 
-    const newStock = {
-      ...stock,
-      addedAt: new Date().toISOString().split("T")[0],
-    };
-
-    const newList = [...watchlist, newStock];
-    setWatchlist(newList);
-    localStorage.setItem("watchlist", JSON.stringify(newList));
-    setSearchQuery("");
-    setSearchResults([]);
+    const success = await addSymbolToWatchlist(stock.symbol);
+    if (success) {
+      // 重新加载列表
+      await loadWatchlistFromAPI();
+      setSearchQuery("");
+      setSearchResults([]);
+    } else {
+      alert("添加失败,请重试");
+    }
   }
 
-  function removeFromWatchlist(symbol: string) {
+  // 🔄 修改: 使用API删除
+  async function removeFromWatchlist(symbol: string) {
     if (!confirm(`确定要移除 ${symbol} 吗?`)) return;
 
-    const newList = watchlist.filter((s) => s.symbol !== symbol);
-    setWatchlist(newList);
-    localStorage.setItem("watchlist", JSON.stringify(newList));
+    const success = await removeSymbolFromWatchlist(symbol);
+    if (success) {
+      await loadWatchlistFromAPI();
+    } else {
+      alert("删除失败,请重试");
+    }
   }
 
-  function clearWatchlist() {
+  // 🔄 修改: 使用API清空
+  async function clearWatchlist() {
     if (!confirm("确定要清空所有关注列表吗?")) return;
-    setWatchlist([]);
-    localStorage.removeItem("watchlist");
+
+    const success = await clearWatchlistAPI();
+    if (success) {
+      await loadWatchlistFromAPI();
+    } else {
+      alert("清空失败,请重试");
+    }
   }
 
   function exportWatchlistCSV() {
@@ -306,6 +362,17 @@ export default function ManagePage() {
       return;
     }
     window.location.hash = `#/portfolio?symbols=${selectedForPortfolio.join(",")}`;
+  }
+
+  // 🔄 新增: 加载状态显示
+  if (loadingWatchlist) {
+    return (
+      <div className="manage-page">
+        <div style={{ textAlign: 'center', padding: 60, color: 'rgba(255,255,255,0.6)' }}>
+          ⏳ 加载中...
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -474,6 +541,7 @@ export default function ManagePage() {
     </div>
   );
 }
+
 
 // ============= Watchlist Tab =============
 function WatchlistTab({

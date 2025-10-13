@@ -91,6 +91,17 @@ class ScoreDaily(Base):
     version_tag = Column(String, default="v0.1", index=True)
     __table_args__ = (Index("uq_scores_asof_symbol", "as_of", "symbol", unique=True),)
 
+
+class Watchlist(Base):
+    """用户关注列表"""
+    __tablename__ = "watchlist"
+
+    symbol = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=True)
+    sector = Column(String, nullable=True)
+    added_at = Column(DateTime, default=datetime.utcnow)
+    
+
 # 在 backend/storage/models.py 中添加以下表定义
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, Boolean

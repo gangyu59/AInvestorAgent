@@ -13,12 +13,12 @@ import { DecisionTracking } from "../components/dashboard/DecisionTracking";
 import { DecisionHistoryModal } from "../components/dashboard/DecisionHistoryModal";
 import { API_BASE } from "../services/endpoints";
 import { aiSmartDecide } from "../services/endpoints";
+import { getWatchlist } from "../services/endpoints";
 
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
 
 export default function Dashboard() {
-  const [symbols] = useState<string[]>(DEFAULT_SYMBOLS);
-
+  const [symbols, setSymbols] = useState<string[]>([]);
   const [decide, setDecide] = useState<any>(null);
   const [scores, setScores] = useState<any[]>([]);
   const [sentiment, setSentiment] = useState<any>(null);
@@ -38,6 +38,19 @@ export default function Dashboard() {
   });
 
   // ===== 首屏示例数据（按你原结构）=====
+  useEffect(() => {
+    async function loadWatchlist() {
+      try {
+        const data = await getWatchlist();
+        setSymbols(data && data.length > 0 ? data : DEFAULT_SYMBOLS);
+      } catch (e) {
+        console.error("加载watchlist失败:", e);
+        setSymbols(DEFAULT_SYMBOLS);
+      }
+    }
+    loadWatchlist();
+  }, []);
+
   useEffect(() => {
     setSnapshot({
       weights: { AAPL: 0.25, MSFT: 0.2, NVDA: 0.15, AMZN: 0.2, GOOGL: 0.2 },
@@ -77,6 +90,16 @@ export default function Dashboard() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
   }, [snapshot]);
+
+  // 添加刷新函数(供WatchlistPanel使用)
+  const refreshWatchlist = async () => {
+    try {
+      const data = await getWatchlist();
+      setSymbols(data && data.length > 0 ? data : DEFAULT_SYMBOLS);
+    } catch (e) {
+      console.error("刷新失败:", e);
+    }
+  };
 
   // ===== 🔧 修复：真正的智能决策函数 =====
   async function onDecide() {
@@ -250,7 +273,7 @@ export default function Dashboard() {
 
       <section className="grid-12 gap-16 first-row equalize">
         <div className="col-3 col-md-12 card-slot">
-          <WatchlistPanel list={symbols} />
+          <WatchlistPanel list={symbols} onRefresh={refreshWatchlist}/>
         </div>
         <div className="col-6 col-md-12 card-slot">
           <PortfolioOverview snapshot={snapshot} keptTop5={keptTop5} onDecide={onDecide} />

@@ -1,12 +1,14 @@
 // frontend/src/components/dashboard/WatchlistPanel.tsx
 import { useState, useEffect } from "react";
+import { API_BASE } from "../../services/endpoints";  // 修复1: 添加API_BASE导入
 
 interface WatchlistPanelProps {
   list: string[];
   onRemove?: (symbol: string) => void;
+  onRefresh?: () => void;  // 修复2: 添加onRefresh定义
 }
 
-export function WatchlistPanel({ list, onRemove }: WatchlistPanelProps) {
+export function WatchlistPanel({ list, onRemove, onRefresh }: WatchlistPanelProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredList, setFilteredList] = useState(list);
 
@@ -21,6 +23,35 @@ export function WatchlistPanel({ list, onRemove }: WatchlistPanelProps) {
       setFilteredList(list);
     }
   }, [searchQuery, list]);
+
+  // 修复3: 添加handleRemove函数
+  const handleRemove = async (symbol: string) => {
+    if (!confirm(`确定要从关注列表移除 ${symbol} 吗?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/watchlist/remove/${symbol}`,
+        { method: 'DELETE' }
+      );
+
+      if (!response.ok) {
+        throw new Error(`删除失败: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("✅ 移除成功:", result);
+
+      // 触发刷新回调
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (e: any) {
+      console.error("❌ 删除失败:", e);
+      alert(`删除失败: ${e.message}`);
+    }
+  };
 
   return (
     <div className="dashboard-card watchlist-card-pro">
@@ -96,15 +127,13 @@ export function WatchlistPanel({ list, onRemove }: WatchlistPanelProps) {
                           >
                             查看
                           </button>
-                          {onRemove && (
-                            <button
-                              onClick={() => onRemove(symbol)}
-                              className="btn-mini btn-remove-mini"
-                              title="移除"
-                            >
-                              ×
-                            </button>
-                          )}
+                          <button
+                            onClick={() => handleRemove(symbol)}
+                            className="btn-mini btn-remove-mini"
+                            title="移除"
+                          >
+                            ×
+                          </button>
                         </td>
                       </tr>
                     ))}
