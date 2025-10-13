@@ -6,6 +6,47 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# --- sector lookup (轻量缓存；后续可替换为从 DB/基本面表查询) ---
+_SECTOR_CACHE = {
+    # --- Technology / Comm ---
+    "AAPL":"Technology","MSFT":"Technology","NVDA":"Technology","AMD":"Technology","AVGO":"Technology","ORCL":"Technology",
+    "GOOGL":"Communication Services","GOOG":"Communication Services","META":"Communication Services",
+    # --- Consumer Discretionary / Staples ---
+    "AMZN":"Consumer Discretionary","TSLA":"Consumer Discretionary","PDD":"Consumer Discretionary","BABA":"Consumer Discretionary",
+    "HD":"Consumer Discretionary","NKE":"Consumer Discretionary","COST":"Consumer Staples",
+    # --- Financials ---
+    "JPM":"Financials","BAC":"Financials","WFC":"Financials","C":"Financials","V":"Financials","MA":"Financials",
+    # --- Industrials ---
+    "CAT":"Industrials","HON":"Industrials","UNP":"Industrials",
+    # --- Energy ---
+    "XOM":"Energy","CVX":"Energy","COP":"Energy","SLB":"Energy","EOG":"Energy",
+    # --- Materials ---
+    "BHP":"Materials","RIO":"Materials","FCX":"Materials","NEM":"Materials","SCCO":"Materials","LIN":"Materials",
+    # --- Utilities / REITs ---
+    "NEE":"Utilities","DUK":"Utilities","SO":"Utilities","D":"Utilities","EXC":"Utilities","AMT":"Real Estate",
+    "JNJ": "Health Care",
+    "PFE": "Health Care",
+    "LYFT": "Industrials",
+}
+
+
+def lookup_sector(symbol: str) -> str:
+    if not symbol:
+        return "Unknown"
+    return _SECTOR_CACHE.get(symbol.upper(), "Unknown")
+
+
+def _attach_sector(weights: list[dict]) -> list[dict]:
+    """
+    给每个 weight dict 补全 sector 字段；已存在且非 Unknown 的不覆盖
+    """
+    for w in weights:
+        sec = (w.get("sector") or "").strip()
+        if not sec or sec.lower() == "unknown":
+            w["sector"] = lookup_sector(w.get("symbol"))
+    return weights
+
+
 class PortfolioManager:
     name = "portfolio_manager"
 
@@ -34,8 +75,10 @@ class PortfolioManager:
             return {"ok": False, "weights": []}
 
         w = 1.0 / n
-        weights = [{"symbol": sym, "weight": w} for sym, _ in top]
 
+        weights = [{"symbol": sym, "weight": w} for sym, _ in top]
+        # ✅ 补全 sector
+        weights = _attach_sector(weights)
         return {"ok": True, "weights": weights}
 
 
@@ -126,6 +169,8 @@ class EnhancedPortfolioManager(PortfolioManager):
             if total_weight > 0:
                 for w in weights:
                     w["weight"] /= total_weight
+
+            weights = _attach_sector(weights)
 
             # 如果LLM解析失败，回退到原有逻辑
             if not weights:

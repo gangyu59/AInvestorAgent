@@ -83,7 +83,8 @@ app.include_router(news_router.router)
 app.include_router(scores_router.router)
 app.include_router(portfolio_router.router)
 app.include_router(orchestrator_router.router)
-app.include_router(backtest_router.router, prefix="/api")
+# app.include_router(backtest_router.router, prefix="/api")
+app.include_router(backtest_router.router)
 app.include_router(viz_router, prefix="/api")
 app.include_router(trace_router, prefix="/api")
 app.include_router(sim.router)
@@ -108,29 +109,4 @@ app.mount("/reports", StaticFiles(directory=REPORT_DIR), name="reports")
 def health():
     return {"status": "ok"}
 
-# --- add: compatibility endpoint for legacy test /orchestrator/decide ---
-#
-# from pydantic import BaseModel
-# from typing import Dict, Any, List
-#
-# class DecideRequest(BaseModel):
-#     topk: int = 10
-#     min_score: int = 0
-#     params: Dict[str, Any] = {}
-#
-# @app.post("/orchestrator/decide")
-# def orchestrator_decide(req: DecideRequest):
-#     """
-#     兼容测试的轻量路由：
-#     返回 {"ok": True, "context": {"kept": [...], "orders": [...]}}
-#     先不强依赖内部服务，保证测试通过；以后需要可在此调用你的决策/打分逻辑。
-#     """
-#     # 这里先返回一个最小可用结构，满足测试断言（无需非空）
-#     return {
-#         "ok": True,
-#         "context": {
-#             "kept": [],     # 可按需替换为真实筛选结果
-#             "orders": []    # 可按需替换为真实下单建议
-#         }
-#     }
-# --- end add ---
+

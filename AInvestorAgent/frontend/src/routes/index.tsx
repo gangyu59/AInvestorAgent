@@ -12,6 +12,7 @@ import { DashboardFooter } from "../components/dashboard/Footer";
 import { DecisionTracking } from "../components/dashboard/DecisionTracking";
 import { DecisionHistoryModal } from "../components/dashboard/DecisionHistoryModal";
 import { API_BASE } from "../services/endpoints";
+import { aiSmartDecide } from "../services/endpoints";
 
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
 
@@ -112,19 +113,35 @@ export default function Dashboard() {
       // 步骤 5: 调用真实 API
       setLoadingState(prev => ({ ...prev, currentStep: 4, progress: 80, message: "生成投资组合..." }));
 
-      console.log("📡 调用 portfolio/propose API");
-      const response = await fetch(`${API_BASE}/api/portfolio/propose`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols })
+      // console.log("📡 调用 portfolio/propose API");
+      // const response = await fetch(`${API_BASE}/api/portfolio/propose`, {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ symbols })
+      // });
+      //
+      // if (!response.ok) {
+      //   throw new Error(`API 返回错误: ${response.status}`);
+      // }
+      //
+      // const data = await response.json();
+      // console.log("✅ 组合生成成功:", data);
+
+      console.log("📡 调用 orchestrator/decide（LLM增强）");
+      const data = await aiSmartDecide({
+        symbols,
+        topk: 15,
+        min_score: 60,
+        use_llm: true,
+        params: {
+          "risk.max_stock": 0.30,
+          "risk.max_sector": 0.50,
+          "risk.min_positions": 6,
+          "risk.max_positions": 10,
+        },
       });
-
-      if (!response.ok) {
-        throw new Error(`API 返回错误: ${response.status}`);
-      }
-
-      const data = await response.json();
       console.log("✅ 组合生成成功:", data);
+
 
       // 显示成功结果
       setLoadingState(prev => ({

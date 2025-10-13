@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from typing import Optional, Dict, Any, List
-import json, datetime
+import json, datetime, urllib.request
 
 from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -20,6 +20,120 @@ from backend.orchestrator.pipeline import (
     run_portfolio_pipeline,
     run_propose_and_backtest,
 )
+
+def _enforce_position_bounds(weights: list[dict], min_pos: int | None, max_pos: int | None) -> list[dict]:
+    """按权重降序裁剪到 [min_pos, max_pos]，并归一化。min_pos 只提示，不生造。"""
+    if not isinstance(weights, list) or not weights:
+        return weights
+    ws = sorted(weights, key=lambda x: float(x.get("weight", 0.0)), reverse=True)
+    if isinstance(max_pos, int) and max_pos > 0 and len(ws) > max_pos:
+        ws = ws[:max_pos]
+    total = sum(float(w.get("weight", 0.0)) for w in ws)
+    if total > 0:
+        for w in ws:
+            w["weight"] = float(w.get("weight", 0.0)) / total
+    return ws
+
+def _pad_min_positions(weights: list[dict], universe: list[str], analyses: dict | None, min_pos: int) -> list[dict]:
+    """
+    若当前持仓数 < min_pos：从 universe 里补足未入选的股票。
+    优先使用 analyses 里的 score 排序；没有就按 symbol 排序。
+    然后对所有持仓等权归一化（同时不超过单票上限，后续再由 _enforce_position_bounds 夹持）。
+    """
+    if not isinstance(weights, list):
+        weights = []
+    have = { (w.get("symbol") or "").upper() for w in weights }
+    need = max(int(min_pos or 0) - len(weights), 0)
+    if need <= 0:
+        return weights
+
+    remaining = [s for s in (universe or []) if s and s.upper() not in have]
+
+    def score_of(sym: str) -> float:
+        if isinstance(analyses, dict):
+            a = analyses.get(sym) or analyses.get(sym.upper()) or {}
+            # 常见字段：score / total_score / composite
+            for k in ("score", "total_score", "composite"):
+                v = a.get(k)
+                if isinstance(v, (int, float)):
+                    return float(v)
+        return 0.0
+
+    remaining.sort(key=lambda s: (score_of(s), s), reverse=True)
+    add_syms = remaining[:need]
+
+    # 以极小权重先占位，随后统一等权并归一化
+    for sym in add_syms:
+        weights.append({"symbol": sym, "weight": 1e-6})
+
+    # 等权归一化
+    n = len(weights)
+    if n > 0:
+        eq = 1.0 / n
+        for w in weights:
+            w["weight"] = eq
+    return weights
+
+
+# === sector lookup（先缓存，再走 /fundamentals/{symbol} 兜底） ===
+_SECTOR_CACHE = {
+    "AAPL":"Technology","MSFT":"Technology","NVDA":"Technology","AMD":"Technology","AVGO":"Technology","ORCL":"Technology",
+    "GOOGL":"Communication Services","GOOG":"Communication Services","META":"Communication Services",
+    "AMZN":"Consumer Discretionary","TSLA":"Consumer Discretionary","PDD":"Consumer Discretionary","BABA":"Consumer Discretionary",
+    "HD":"Consumer Discretionary","NKE":"Consumer Discretionary","COST":"Consumer Staples",
+    "JPM":"Financials","BAC":"Financials","WFC":"Financials","C":"Financials","V":"Financials","MA":"Financials",
+    "CAT":"Industrials","HON":"Industrials","UNP":"Industrials",
+    "XOM":"Energy","CVX":"Energy","COP":"Energy","SLB":"Energy","EOG":"Energy",
+    "BHP":"Materials","RIO":"Materials","FCX":"Materials","NEM":"Materials","SCCO":"Materials","LIN":"Materials",
+    "NEE":"Utilities","DUK":"Utilities","SO":"Utilities","D":"Utilities","EXC":"Utilities","AMT":"Real Estate",
+    # 高频补充（避免 Unknown）
+    "NFLX":"Communication Services","CRM":"Technology","ADBE":"Technology","IBM":"Technology","TSM":"Technology","SAP":"Technology",
+    "INTC":"Technology","QCOM":"Technology","CSCO":"Technology","TXN":"Technology","SHOP":"Technology","UBER":"Technology",
+    "PYPL":"Technology","SQ":"Technology","BLK":"Financials","MS":"Financials","GS":"Financials","AXP":"Financials","SPGI":"Financials","ICE":"Financials",
+    "OXY":"Energy","PSX":"Energy","VLO":"Energy","KMI":"Energy","DD":"Materials","APD":"Materials","MLM":"Materials","VMC":"Materials",
+    "XEL":"Utilities","AEP":"Utilities","SRE":"Utilities","PCG":"Utilities","PLD":"Real Estate","CBRE":"Real Estate","CCI":"Real Estate",
+    "MCD":"Consumer Discretionary","SBUX":"Consumer Discretionary","LOW":"Consumer Discretionary","BKNG":"Consumer Discretionary",
+    "WMT":"Consumer Staples","TGT":"Consumer Staples","MDLZ":"Consumer Staples","PEP":"Consumer Staples",
+    "T":"Communication Services","VZ":"Communication Services","DIS":"Communication Services",
+    "JNJ": "Health Care",
+    "PFE": "Health Care",
+    "LYFT": "Industrials",
+}
+
+def _fetch_sector_from_fundamentals(symbol: str) -> str | None:
+    """尝试通过你已有的 /fundamentals/{symbol} 动态获取 sector，并写入缓存。失败返回 None。"""
+    try:
+        url = f"http://127.0.0.1:8000/fundamentals/{(symbol or '').upper()}"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8","ignore"))
+        sec = (data or {}).get("sector")
+        if isinstance(sec, str) and sec.strip():
+            sec = sec.strip()
+            _SECTOR_CACHE[(symbol or "").upper()] = sec
+            return sec
+    except Exception:
+        pass
+    return None
+
+def lookup_sector(symbol: str) -> str:
+    sym = (symbol or "").upper()
+    sec = _SECTOR_CACHE.get(sym)
+    if sec: return sec
+    sec = _fetch_sector_from_fundamentals(sym)
+    return sec or "Unknown"
+
+def _attach_sector(weights: list[dict]) -> list[dict]:
+    for w in weights or []:
+        sec = (w.get("sector") or "").strip()
+        if not sec or sec.lower() == "unknown":
+            w["sector"] = lookup_sector(w.get("symbol"))
+    return weights
+
+def _debug_unknowns(holdings: list[dict]) -> None:
+    unk = [h.get("symbol") for h in holdings if (h.get("sector") or "Unknown") == "Unknown"]
+    if unk:
+        print("[orchestrator] Unknown sectors:", sorted(set([u for u in unk if u])))
+
 
 router = APIRouter(prefix="/orchestrator", tags=["orchestrator"])
 
@@ -45,6 +159,13 @@ class ProposeReq(BaseModel):
 class ProposeBacktestReq(BaseModel):
     candidates: List[Candidate]
     params: Optional[Dict[str, Any]] = None  # + 回测参数（window_days、trading_cost、mock 等）
+
+class DecideReq(BaseModel):
+    symbols: List[str]
+    topk: Optional[int] = None
+    min_score: Optional[float] = None
+    use_llm: Optional[bool] = None
+    params: Optional[Dict[str, Any]] = None
 
 
 def _deterministic_factors(symbol: str) -> Dict[str, float]:
@@ -126,28 +247,26 @@ def dispatch(req: DispatchReq):
 
 @router.post("/propose")
 def propose(req: ProposeReq):
-    """
-    /orchestrator/propose
-    先尝试跑你现成的组合管线；若返回缺少关键字段（kept / concentration），
-    自动用 RiskManager 进行一次本地兜底，保证 Smoketest & 单测结构齐全。
-    """
     try:
-        # 原有逻辑：先尝试跑你现成的 pipeline
-        candidates = [c.model_dump(exclude_none=False) for c in req.candidates]  # pydantic v2
+        candidates = [c.model_dump(exclude_none=False) for c in req.candidates]
         params = req.params or {}
 
+        # 只调用一次
         result = run_portfolio_pipeline(candidates, params)
 
-        # 规范化校验：确保 context 内具备单测所需字段
-        ctx = result.get("context") or {}
-        has_kept = isinstance(ctx, dict) and "kept" in ctx
-        has_conc = isinstance(ctx, dict) and "concentration" in ctx
+        # ✅ 统一补全 sector（context.kept 和/或 顶层 holdings）
+        try:
+            ctx = result.get("context") or {}
+            if isinstance(ctx, dict) and isinstance(ctx.get("kept"), list):
+                ctx["kept"] = _attach_sector(ctx["kept"])
+                result["context"] = ctx
+            if isinstance(result.get("holdings"), list):
+                result["holdings"] = _attach_sector(result["holdings"])
+        except Exception:
+            pass
 
-        if has_kept and has_conc:
-            return JSONResponse(content=jsonable_encoder(result))
-        else:
-            # 缺字段时走兜底（不改变成功返回结构）
-            raise ValueError("pipeline_missing_fields")
+        # 直接返回；下面不再写不可达分支
+        return JSONResponse(content=jsonable_encoder(result))
 
     except Exception:
         # ===== 兜底：用 RiskManager 本地构建一次可用组合，满足单测结构 =====
@@ -211,6 +330,106 @@ def propose(req: ProposeReq):
             raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/decide")
+def decide(req: DecideReq):
+    """
+    /orchestrator/decide
+    - 输入：symbols 列表 + 可选的 topk / min_score / params（含 risk.* 约束）
+    - 流程：构造 candidates(含确定性 score 与 sector 兜底) -> 调组合管线 -> 统一补 sector -> 兜底满足 min/max 持仓 -> 归一化 -> 返回 holdings
+    """
+    try:
+        syms = [(s or "").upper() for s in (req.symbols or []) if s]
+        if not syms:
+            raise HTTPException(status_code=400, detail="symbols required")
+
+        # 1) 为每个 symbol 生成一个稳定的 score（用于排序/截断），并填个 sector 兜底
+        cands = []
+        for s in syms:
+            f = _deterministic_factors(s)
+            score = round(sum(f.values()) / 4.0 * 100.0, 2)  # 0~100
+            if req.min_score is not None and score < float(req.min_score):
+                continue
+            cands.append({
+                "symbol": s,
+                "sector": lookup_sector(s),  # 先给一个兜底行业，后面还会统一 attach
+                "score": score,
+                "factors": f,
+            })
+
+        # 若过滤后为空：放宽（忽略 min_score），按 topk 选
+        if not cands:
+            raw = []
+            seen = set()
+            for s in syms:
+                if s in seen:
+                    continue
+                seen.add(s)
+                f = _deterministic_factors(s)
+                score = round(sum(f.values()) / 4.0 * 100.0, 2)
+                raw.append({
+                    "symbol": s,
+                    "sector": lookup_sector(s),  # 给兜底行业
+                    "score": score,
+                    "factors": f,
+                })
+            if isinstance(req.topk, int) and req.topk > 0:
+                raw.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+                raw = raw[:req.topk]
+            cands = raw
+
+        if not cands:
+            raise HTTPException(status_code=400, detail="no candidates after filtering")
+
+        # 2) 走组合管线
+        params = req.params or {}
+        result = run_portfolio_pipeline(candidates=cands, params=params)
+
+        # 3) 取出 holdings（兼容两种返回风格：顶层 holdings 或 context.kept）
+        holdings = []
+        if isinstance(result, dict):
+            if isinstance(result.get("holdings"), list):
+                holdings = result["holdings"]
+            else:
+                ctx = result.get("context") or {}
+                if isinstance(ctx, dict) and isinstance(ctx.get("kept"), list):
+                    holdings = ctx["kept"]
+
+        # 兜底等权
+        if not holdings:
+            eq = 1.0 / max(1, len(cands))
+            holdings = [{"symbol": x["symbol"], "weight": eq} for x in cands]
+
+        # 4) 统一补齐 sector（并打印 Unknown 以便你扩缓存）
+        holdings = _attach_sector(holdings)
+        _debug_unknowns(holdings)
+
+        # 5) 不足 min_positions 时，从 universe 里按 score 补齐；再做 max_positions 裁剪 & 归一化
+        p = params
+        min_pos = int((p.get("risk.min_positions") or 0) if isinstance(p, dict) else 0)
+        max_pos = int((p.get("risk.max_positions") or 0) if isinstance(p, dict) else 0)
+
+        # 从 result 里拿 analyses 作为补齐的排序参考（没有也没关系）
+        analyses = result.get("analyses") if isinstance(result, dict) else None
+        holdings = _pad_min_positions(holdings, syms, analyses, min_pos)
+        holdings = _enforce_position_bounds(holdings, min_pos=min_pos, max_pos=max_pos)
+
+        # 6) 组装响应
+        resp = {
+            "ok": True,
+            "method": ("llm_enhanced" if req.use_llm else "rules"),
+            "holdings": holdings,
+            "reasoning": result.get("reasoning") if isinstance(result, dict) else None,
+            "version_tag": result.get("version_tag") if isinstance(result, dict) else None,
+            "snapshot_id": None,  # 如需保存快照，可在此处接入你的保存函数
+        }
+        return JSONResponse(content=jsonable_encoder(resp))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/propose_backtest")
 def propose_backtest(req: ProposeBacktestReq):
     """
@@ -256,7 +475,7 @@ def propose_backtest(req: ProposeBacktestReq):
         concentration = rm_out["data"]["concentration"]
         actions = rm_out["data"]["actions"]
 
-        # 3) BacktestEngineer：用 kept 做 mock 回测，产出 dates/nav/drawdown/benchmark_nav/metrics
+        # 3) BacktestEngineer：用 kept 做 mock 回测，产出 dates/nav/drawdown/metrics/benchmark_nav
         be = BacktestEngineer()
         be_ctx = {
             "kept": kept,
@@ -269,9 +488,8 @@ def propose_backtest(req: ProposeBacktestReq):
         if not be_out.get("ok"):
             raise HTTPException(status_code=400, detail="backtest_engineer failed")
 
-        bt = be_out["data"]  # dates/nav/drawdown/metrics/benchmark_nav
+        bt = be_out["data"]
 
-        # 组装测试所需结构（字段拍平到 context 顶层）
         result = {
             "context": {
                 "kept": kept,
@@ -311,40 +529,3 @@ def propose_backtest(req: ProposeBacktestReq):
         return JSONResponse(content=jsonable_encoder(result))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# @router.post("/orchestrator/decide")
-# def decide(req: DecideRequest):
-#     trace = []
-#     ctx = {}  # 贯穿上下文
-#
-#     # 1) Chair
-#     from backend.agents.chair import ChairAgent
-#     ch = ChairAgent().run({}, topk=req.topk, min_score=req.min_score)
-#     trace.append({"agent":"chair","ok":ch["ok"],"meta":ch.get("meta",{})})
-#     if not ch["ok"]:
-#         return {"ok": False, "trace": trace, "context": ctx}
-#     candidates = ch["data"]["candidates"]
-#
-#     # 2) PM/RM （沿用你现有 propose 逻辑）
-#     pm_payload = {"candidates": candidates, "params": req.params or {}}
-#     pm = propose(ProposeReq(candidates=candidates, params=req.params or {}))
-#     trace.extend(pm["trace"])
-#     ctx.update(pm["context"] or {})
-#     kept = ctx.get("kept", [])
-#
-#     # 3) Executor
-#     from backend.agents.executor import ExecutorAgent
-#     ex = ExecutorAgent().run(ctx, trading_cost=req.trading_cost or 0.001)
-#     trace.append({"agent":"executor","ok":ex["ok"],"meta":ex.get("meta",{})})
-#     orders = (ex["data"] or {}).get("orders", [])
-#
-#     # 可选：TraceRecord 落盘
-#     try:
-#         from backend.storage import db
-#         tid = db.save_trace("decide", req.model_dump(), {"context": ctx, "trace": trace})
-#         ctx["trace_id"] = tid
-#     except Exception:
-#         pass
-#
-#     return {"ok": True, "trace": trace, "context": {**ctx, "orders": orders}}

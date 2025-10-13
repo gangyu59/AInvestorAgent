@@ -1,263 +1,248 @@
-// frontend/src/services/endpoints.ts - 修复版
+// ========================= endpoints.ts (精简去重 · 单一真源) =========================
+// 说明：
+// 1) 这是一个可直接覆盖旧文件的“整洁版”实现：统一 HTTP 工具 + 统一类型 + 统一导出。
+// 2) 不使用默认导出；不依赖第三方库；已处理 fetch 的 RequestInit 类型兼容问题。
+// 3) 兼容后端两种返回风格：{ data: ... } 或 直接返回对象/数组。
 
-// ===== 统一API配置 =====
+// ------------------------- 基础配置 -------------------------
 export const API_BASE: string = (import.meta as any).env?.VITE_API_BASE || "";
-const JSON_HEADERS = { "Content-Type": "application/json" };
-const ok = (r: Response) => {
+
+// ------------------------- HTTP 工具 -------------------------
+function ensureOk(r: Response): Response {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   return r;
+}
+
+export async function httpGet<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init as RequestInit).then(ensureOk);
+  return (await res.json()) as T;
+}
+
+export async function httpPost<T>(url: string, body?: unknown, init?: RequestInit): Promise<T> {
+  // 合并 headers（兼容 Headers/数组/字典）
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...(init?.headers as any || {}),
+  };
+
+  // 不在变量初始化处声明 RequestInit，避免 TS 严格模式报错
+  const options = {
+    ...(init || {}),
+    method: "POST",
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  };
+
+  const res = await fetch(url, options as RequestInit).then(ensureOk);
+  return (await res.json()) as T;
+}
+
+export async function httpPut<T>(url: string, body?: unknown, init?: RequestInit): Promise<T> {
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...(init?.headers as any || {}),
+  };
+  const options = {
+    ...(init || {}),
+    method: "PUT",
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  };
+  const res = await fetch(url, options as RequestInit).then(ensureOk);
+  return (await res.json()) as T;
+}
+
+// ------------------------- 通用类型 -------------------------
+export type FactorBreakdown = {
+  value?: number;
+  quality?: number;
+  momentum?: number;
+  sentiment?: number;
 };
 
-// ===== 类型定义 =====
 export type ScoreItem = {
   symbol: string;
-  score: number | { score: number; value?: number; quality?: number; momentum?: number; sentiment?: number; version_tag?: string };
-  factors?: { value?: number; quality?: number; momentum?: number; sentiment?: number };
+  score: number;
+  factors?: FactorBreakdown;
   as_of?: string;
-  updated_at?: string;
   version_tag?: string;
 };
 
-export type BacktestMetrics = {
-  ann_return?: number;
-  mdd?: number;
-  sharpe?: number;
-  winrate?: number;
-  max_dd?: number;
-  win_rate?: number;
-  annReturn?: number;
-  maxDD?: number;
+export type Holding = {
+  symbol: string;
+  weight: number;
+  score?: number;
+  sector?: string;
+  reasons?: string[];
 };
 
-export type BacktestResponse = {
-  nav?: number[];
-  benchmark_nav?: number[];
-  dates?: string[];
-  metrics: BacktestMetrics;
-  equity_nav?: number[];
-  benchmark?: number[];
-};
+// ------------------------- 健康检查 / 基础 -------------------------
+export async function ping(): Promise<{ status: string }> {
+  return httpGet<{ status: string }>(`${API_BASE}/health`);
+}
 
-export type DecideContext = {
-  weights: Record<string, number>;
-  kept?: string[];
-  orders?: Array<{symbol: string; action: "BUY"|"SELL"; weight?: number}>;
-  backtest?: BacktestResponse;
-  version_tag?: string;
-};
+export const analyzeEndpoint = (symbol: string) =>
+  `${API_BASE}/api/analyze/${encodeURIComponent(symbol)}`;
 
-export type DecideResponse = { context: DecideContext };
-
-export type SnapshotBrief = {
-  weights: Record<string, number>;
-  metrics?: BacktestMetrics;
-  version_tag?: string;
-  kept?: string[];
-};
-
-export type SentimentBrief = {
-  series?: Array<{ date: string; score: number }>;
-  latest_news?: Array<{ title: string; url: string; score: number }>;
-};
-
-// ===== 核心功能API =====
-
-// 批量评分 - 修复路径
+// ------------------------- 评分 / 因子 -------------------------
 export async function scoreBatch(symbols: string[]): Promise<ScoreItem[]> {
-  const r = await fetch(`${API_BASE}/api/scores/batch`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ symbols }),
-  }).then(ok);
-  const j = await r.json();
-  return Array.isArray(j?.items) ? j.items : Array.isArray(j) ? j : [];
+  const j = await httpPost<any>(`${API_BASE}/api/scores/batch`, { symbols });
+  return Array.isArray(j?.items) ? j.items : (Array.isArray(j) ? j : []);
 }
 
-// 组合建议 - 直接调用你已测试通过的接口
-export async function proposePortfolio(symbols: string[]): Promise<any> {
-  const r = await fetch(`${API_BASE}/api/portfolio/propose`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ symbols }),
-  }).then(ok);
-  return r.json();
-}
+// ------------------------- 舆情 / 新闻 -------------------------
+export type SentimentPoint = { date: string; score: number };
+export type NewsItem = {
+  title: string;
+  url: string;
+  score?: number;
+  source?: string;
+  published_at?: string;
+};
+export type SentimentBrief = { series: SentimentPoint[]; latest_news: NewsItem[] };
 
-// 回测 - 修复为正确的API路径
-export async function runBacktest(payload: {
-  weights?: Array<{symbol: string; weight: number}>;
-  symbols?: string[];
-  window_days?: number;
-  trading_cost?: number;
-  mock?: boolean;
-}): Promise<BacktestResponse> {
-  const r = await fetch(`${API_BASE}/api/backtest/run`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      weights: payload.weights || (payload.symbols || []).map(s => ({symbol: s, weight: 1.0/Math.max(payload.symbols?.length || 1, 1)})),
-      window_days: payload.window_days || 180,
-      trading_cost: payload.trading_cost || 0,
-      mock: payload.mock !== false, // 默认true确保演示稳定
-    }),
-  }).then(ok);
-  const j = await r.json();
-
-  // 规范化返回结果
-  const data = j?.data || j;
-  return {
-    nav: data?.nav || data?.equity_nav || data?.equity || [],
-    benchmark_nav: data?.benchmark_nav || data?.benchmark || [],
-    dates: data?.dates || [],
-    metrics: data?.metrics || {},
-  };
-}
-
-// 一键决策 - 调用orchestrator/decide
-export async function decideNow(body: { symbols: string[]; params?: any }): Promise<DecideResponse> {
-  const r = await fetch(`${API_BASE}/orchestrator/decide`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ topk: body.symbols.length, params: body.params }),
-  }).then(ok);
-  const j = await r.json();
-
-  // 规范化返回格式
-  return {
-    context: {
-      weights: {},
-      kept: j?.context?.kept || [],
-      orders: j?.context?.orders || [],
-      version_tag: j?.context?.version_tag || "v1.0.0"
-    }
-  };
-}
-
-// 快照获取
-export async function fetchLastSnapshot(): Promise<SnapshotBrief|null> {
+export async function fetchSentimentBrief(symbols: string[], days = 14): Promise<SentimentBrief | null> {
   try {
-    const r = await fetch(`${API_BASE}/api/portfolio/snapshot?latest=1`);
-    if (!r.ok) return null;
-    const j = await r.json();
+    const q = encodeURIComponent(symbols.join(","));
+    const j = await httpGet<any>(`${API_BASE}/api/sentiment/brief?symbols=${q}&days=${days}`);
     return j?.data || j || null;
   } catch {
     return null;
   }
 }
 
-// 情绪简报
-export async function fetchSentimentBrief(
-  symbols: string[],
-  days = 14
-): Promise<SentimentBrief | null> {
-  const q = encodeURIComponent(symbols.join(","));
+export async function fetchNews(symbol: string, days = 7, limit = 20): Promise<NewsItem[]> {
   try {
-    const r = await fetch(`${API_BASE}/api/sentiment/brief?symbols=${q}&days=${days}`);
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j?.data || j || null;
+    const j = await httpGet<any>(
+      `${API_BASE}/api/news/list?symbol=${encodeURIComponent(symbol)}&days=${days}&limit=${limit}`
+    );
+    return j?.items || j?.data || j || [];
   } catch {
-    return null;
+    return [];
   }
 }
 
-// ===== 工具函数 =====
-export const analyzeEndpoint = (symbol: string) => `/api/analyze/${encodeURIComponent(symbol)}`;
-
-// 报告生成
-export async function generateReport(): Promise<{content: string}> {
-  const r = await fetch(`${API_BASE}/api/report/generate`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-  }).then(ok);
-  return r.json();
-}
-
-// ===== 兼容性导出（为旧文件提供支持） =====
-export const BACKTEST_RUN = `${API_BASE}/api/backtest/run`;
-
-// 修复PRICES函数 - 使用存在的接口
-export const PRICES = (symbol: string, days = 180) => {
-  // 先尝试你现有的daily接口
-  return `${API_BASE}/api/prices/daily?symbol=${encodeURIComponent(symbol)}&limit=${days}`;
-};
-
-// 修复价格系列获取函数
-export type PricePoint = {
-  date: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume?: number;
-};
-
-export async function fetchPriceSeries(
-  symbol: string,
-  opts?: { range?: string; limit?: number; adjusted?: boolean }
-): Promise<PricePoint[]> {
-  const limit = opts?.limit ?? 180;
-  const s = encodeURIComponent(symbol);
-
-  // 1) 直接查 daily - 使用正确的返回格式解析
+// ------------------------- Watchlist -------------------------
+export async function getWatchlist(): Promise<string[]> {
   try {
-    const raw = await fetch(`${API_BASE}/api/prices/daily?symbol=${s}&limit=${limit}`);
-    if (!raw.ok) throw new Error("");
-    const j = await raw.json();
-
-    // 解析你的API返回格式：{"symbol":"AAPL","items":[...]}
-    const arr = j?.items || [];
-    const norm = arr.map((d: any) => ({
-      date: d.date,
-      close: +(d.close || 0),
-      open: +(d.open || d.close || 0),
-      high: +(d.high || d.close || 0),
-      low: +(d.low || d.close || 0),
-      volume: d.volume || 0,
-    }))
-    .filter((x: any) => x.date && Number.isFinite(x.close))
-    .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    if (norm.length) return norm.slice(-limit);
-  } catch (e) {
-    console.warn(`获取 ${symbol} 价格数据失败:`, e);
+    const j = await httpGet<any>(`${API_BASE}/api/watchlist`);
+    const arr = j?.items || j?.data || j;
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
   }
-
-  // 2) 兜底：返回空数组而不是抛错
-  console.warn(`无法获取 ${symbol} 的价格数据`);
-  return [];
 }
 
+export async function saveWatchlist(symbols: string[]): Promise<{ ok: boolean }> {
+  try {
+    const j = await httpPut<any>(`${API_BASE}/api/watchlist`, { symbols });
+    return { ok: !!(j?.ok ?? true) };
+  } catch {
+    return { ok: false };
+  }
+}
 
-// 在 frontend/src/services/endpoints.ts 中添加
-
-// 智能决策接口
-export interface SmartDecideRequest {
+// ------------------------- 组合 / 决策 / 回测 -------------------------
+// 1) 多智能体/LLM 决策（/orchestrator/decide）
+export type AIDecideRequest = {
   symbols: string[];
   topk?: number;
   min_score?: number;
   use_llm?: boolean;
   refresh_prices?: boolean;
-}
-
-export interface SmartDecideResponse {
-  as_of: string;
-  universe: string[];
-  analyses: Record<string, any>;
-  holdings: Array<{symbol: string; weight: number; reasoning?: string}>;
-  reasoning?: string;
-  method: string;
-  snapshot_id?: string;
+  params?: Record<string, unknown>; // 例如 "risk.max_stock": 0.3
+};
+export type AIDecideResponse = {
+  ok?: boolean;
+  method?: string;                 // "llm_enhanced" | "rules" ...
+  holdings: Holding[];
+  snapshot_id?: string | null;
   version_tag?: string;
+  reasoning?: string;
+  backtest?: {
+    dates: string[];
+    nav: number[];
+    benchmark_nav?: number[];
+    drawdown?: number[];
+    metrics?: Record<string, number>;
+  };
+};
+
+export async function aiSmartDecide(req: AIDecideRequest): Promise<AIDecideResponse> {
+  return httpPost<AIDecideResponse>(`${API_BASE}/orchestrator/decide`, req);
 }
 
-// 智能决策 API
-export async function smartDecide(req: SmartDecideRequest): Promise<SmartDecideResponse> {
-  const response = await fetch(`${API_BASE}/orchestrator/decide`, {
-    method: 'POST',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(req)
-  }).then(ok);
+// 2) 组合建议（非 LLM，仍有风控，/api/portfolio/propose）
+export type ProposePortfolioResponse = {
+  snapshot_id?: string | null;
+  as_of?: string;
+  version_tag?: string;
+  holdings: Holding[];
+  sector_concentration?: Array<{ sector: string; weight: number }>;
+};
 
-  return response.json();
+export async function proposePortfolio(symbols: string[]): Promise<ProposePortfolioResponse> {
+  return httpPost<ProposePortfolioResponse>(`${API_BASE}/api/portfolio/propose`, { symbols });
 }
+
+// 3) 回测（/api/backtest/run）
+// ================= 修正后的 runBacktest（双路径回退 + 结果规范化） =================
+export type BacktestRunRequest = {
+  holdings?: Array<{ symbol: string; weight: number }>;
+  snapshot_id?: string;
+  window_days?: number;
+  trading_cost?: number;
+  rebalance?: "weekly" | "monthly";
+};
+export type BacktestRunResponse = {
+  dates: string[];
+  nav: number[];
+  benchmark_nav?: number[];
+  drawdown?: number[];
+  metrics?: Record<string, number>;
+  version_tag?: string;
+};
+
+export async function runBacktest(req: BacktestRunRequest): Promise<BacktestRunResponse> {
+  const payload: any = {
+    // 两种都带上，后端有哪个吃哪个；防 422
+    holdings: req.holdings,
+    weights: req.holdings?.map(h => ({ symbol: h.symbol, weight: h.weight })),
+    snapshot_id: req.snapshot_id,
+    window_days: req.window_days ?? 252,
+    trading_cost: req.trading_cost ?? 0,
+    rebalance: req.rebalance ?? "weekly",
+  };
+
+  const normalize = (j: any): BacktestRunResponse => {
+    const d = j?.data || j || {};
+    return {
+      dates: d.dates || [],
+      nav: d.nav || d.equity || [],
+      benchmark_nav: d.benchmark_nav || d.benchmark || [],
+      drawdown: d.drawdown || [],
+      metrics: d.metrics || {},
+      version_tag: d.version_tag,
+    };
+  };
+
+  // 优先 /api/backtest/run ，失败回退到 /backtest/run
+  const url1 = `${API_BASE}/api/backtest/run`;
+  const url2 = `${API_BASE}/backtest/run`;
+  try {
+    const j1 = await httpPost<any>(url1, payload);
+    return normalize(j1);
+  } catch (e1) {
+    const j2 = await httpPost<any>(url2, payload);
+    return normalize(j2);
+  }
+}
+
+
+// ------------------------- 旧名别名（可选；减少改动面） -------------------------
+// 如果你的页面里引用了这些常量名，也可以继续工作：
+export const DECIDE_API = `${API_BASE}/orchestrator/decide`;
+export const PROPOSE_API = `${API_BASE}/api/portfolio/propose`;
+export const RUN_BACKTEST_API = `${API_BASE}/api/backtest/run`;
+
+// ==============================================================================
