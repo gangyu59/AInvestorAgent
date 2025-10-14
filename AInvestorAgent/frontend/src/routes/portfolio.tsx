@@ -56,16 +56,32 @@ export default function PortfolioPage() {
 
   const holdingsCount = resp?.holdings?.length || 0;
 
-  // 🔧 修复：在组件挂载后立即检查 URL 参数
+  // 🔧 页面加载时检查URL参数
   useEffect(() => {
-    console.log("🔍 Portfolio 页面加载，检查 URL...");
+    console.log("📍 Portfolio页面挂载");
+    loadFromURL();
+  }, []);
 
-    // 读取 URL 参数
+  // 🔧 监听hash变化
+  useEffect(() => {
+    const handleHashChange = () => {
+      console.log("🔄 检测到URL变化");
+      loadFromURL();
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // 🔧 从URL加载数据
+  function loadFromURL() {
     const hash = window.location.hash || "";
     const i = hash.indexOf("?");
 
     if (i < 0) {
-      console.log("📌 无 URL 参数，等待用户输入");
+      console.log("📌 无URL参数,等待用户输入");
+      setMode('create');
+      setResp(null);
       return;
     }
 
@@ -73,7 +89,7 @@ export default function PortfolioPage() {
     const symbols = sp.get("symbols") || "";
     const sid = sp.get("sid") || "";
 
-    console.log("📋 URL 参数:", { symbols, sid });
+    console.log("📋 URL参数:", { symbols, sid });
 
     if (sid) {
       // 从快照加载
@@ -81,17 +97,19 @@ export default function PortfolioPage() {
       setMode('view');
       loadSnapshot(sid);
     } else if (symbols) {
-      // 从 symbols 生成
+      // 从symbols生成
       console.log("🎯 从股票列表生成组合:", symbols);
-      setPool(symbols); // 更新输入框
+      setMode('create');
+      setPool(symbols);
       const list = symbols.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
       if (list.length > 0) {
         onPropose(list);
       }
     } else {
-      console.log("⚠️ URL 参数不完整");
+      console.log("⚠️ URL参数不完整");
+      setMode('create');
     }
-  }, [window.location.hash]); // 依赖 hash 变化
+  }
 
   // 加载已有快照
   async function loadSnapshot(sid: string) {
@@ -101,6 +119,18 @@ export default function PortfolioPage() {
     try {
       console.log("📡 加载快照:", `${SNAPSHOT_URL}/${sid}`);
       const r = await fetch(`${SNAPSHOT_URL}/${sid}`);
+
+      // 🔧 如果404，自动回退到latest
+      if (r.status === 404) {
+        console.warn(`⚠️ 快照 ${sid} 不存在，加载最新快照`);
+        const r2 = await fetch(`${SNAPSHOT_URL}/latest`);
+        if (!r2.ok) throw new Error(`加载最新快照失败: HTTP ${r2.status}`);
+        const data: Resp = await r2.json();
+        console.log("✅ 最新快照数据:", data);
+        setResp(data);
+        return;
+      }
+
       if (!r.ok) throw new Error(`加载快照失败: HTTP ${r.status}`);
       const data: Resp = await r.json();
       console.log("✅ 快照数据:", data);
@@ -113,13 +143,13 @@ export default function PortfolioPage() {
     }
   }
 
-  // 智能决策：生成新组合
+  // 智能决策:生成新组合
   async function onPropose(list?: string[]) {
     const symbols = (list && list.length)
       ? list
       : pool.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
 
-    console.log("🎯 开始智能决策，股票列表:", symbols);
+    console.log("🎯 开始智能决策,股票列表:", symbols);
 
     if (!symbols.length) {
       setErr("请输入至少一只股票");
@@ -144,7 +174,7 @@ export default function PortfolioPage() {
 
       if (!r.ok) {
         const errorText = await r.text();
-        console.error("❌ API 错误响应:", errorText);
+        console.error("❌ API错误响应:", errorText);
         throw new Error(`HTTP ${r.status}: ${errorText}`);
       }
 
@@ -154,7 +184,7 @@ export default function PortfolioPage() {
       setResp(data);
 
       if (!data.holdings || data.holdings.length === 0) {
-        setErr("⚠️ API 返回成功但没有持仓数据");
+        setErr("⚠️ API返回成功但没有持仓数据");
       }
     } catch (e: any) {
       console.error("❌ 智能决策失败:", e);
@@ -195,11 +225,11 @@ export default function PortfolioPage() {
   // 跳转回测
   function goToBacktest() {
     if (!resp?.holdings?.length) {
-      alert("当前无有效持仓，请先生成组合。");
+      alert("当前无有效持仓,请先生成组合。");
       return;
     }
 
-    console.log("🔄 跳转回测，持仓数量:", resp.holdings.length);
+    console.log("📄 跳转回测,持仓数量:", resp.holdings.length);
     console.log("📦 持仓详情:", resp.holdings);
 
     // 把 holdings 数据存到 sessionStorage
@@ -244,7 +274,7 @@ export default function PortfolioPage() {
                 value={pool}
                 onChange={e => setPool(e.currentTarget.value)}
                 style={{ minWidth: 420, flex: 1 }}
-                placeholder="用逗号或空格分隔股票，如：AAPL, MSFT, TSLA"
+                placeholder="用逗号或空格分隔股票,如:AAPL, MSFT, TSLA"
               />
               <button
                 className="btn btn-primary"
@@ -303,7 +333,7 @@ export default function PortfolioPage() {
         <div className="card">
           <div className="card-body" style={{ textAlign: 'center', padding: 40 }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🤖</div>
-            <div style={{ color: '#888' }}>AI 正在分析市场数据，生成最优组合...</div>
+            <div style={{ color: '#888' }}>AI 正在分析市场数据,生成最优组合...</div>
           </div>
         </div>
       )}
@@ -411,7 +441,7 @@ export default function PortfolioPage() {
             </div>
           </div>
 
-          {/* 图表区域：权重饼图 + 行业集中度 */}
+          {/* 图表区域:权重饼图 + 行业集中度 */}
           <div className="grid-2" style={{ marginBottom: 16 }}>
             <div className="card">
               <div className="card-header">

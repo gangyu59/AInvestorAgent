@@ -100,7 +100,22 @@ class Watchlist(Base):
     name = Column(String, nullable=True)
     sector = Column(String, nullable=True)
     added_at = Column(DateTime, default=datetime.utcnow)
-    
+
+
+class PortfolioSnapshot(Base):
+    """组合快照表"""
+    __tablename__ = "portfolio_snapshots"
+
+    snapshot_id = Column(String, primary_key=True)
+    as_of = Column(String, nullable=False)  # 快照日期
+    version_tag = Column(String)
+    payload = Column(Text)  # JSON格式完整数据
+    holdings_json = Column(Text, nullable=True)  # 可选:单独存储holdings
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f"<PortfolioSnapshot(id={self.snapshot_id}, date={self.as_of})>"
+
 
 # 在 backend/storage/models.py 中添加以下表定义
 

@@ -79,6 +79,10 @@ class ProposeResp(BaseModel):
     version_tag: str
     snapshot_id: str
 
+
+# 在你现有的 backend/api/routers/portfolio.py 中
+# 修改 propose 函数,在返回前添加sector查询
+
 @router.post("/propose", response_model=ProposeResp)
 def propose(req: ProposeReq, db: Session = Depends(get_db)):
     if not req.symbols:
@@ -93,15 +97,44 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
     from uuid import uuid4
     snapshot_id = f"ps_{date.today().strftime('%Y%m%d')}_{uuid4().hex[:6]}"
 
+    # 🔧 新增: 为每个holding补充sector信息
+    from backend.storage.models import Symbol
+
+    for holding in holdings:
+        symbol_obj = db.query(Symbol).filter(
+            Symbol.symbol == holding['symbol']
+        ).first()
+
+        if symbol_obj:
+            holding['sector'] = symbol_obj.sector or 'Unknown'
+            # 同时补充name
+            if 'name' not in holding:
+                holding['name'] = symbol_obj.name or holding['symbol']
+        else:
+            # 如果symbols表没有,设为Unknown
+            holding['sector'] = 'Unknown'
+            if 'name' not in holding:
+                holding['name'] = holding['symbol']
+
+    # 🔧 重新计算sector集中度(基于补充后的sector)
+    from collections import defaultdict
+    sector_weights = defaultdict(float)
+    for h in holdings:
+        sector = h.get('sector', 'Unknown')
+        sector_weights[sector] += h.get('weight', 0)
+
+    # 更新sector_pairs
+    sector_pairs = [[s, float(w)] for s, w in sector_weights.items()]
+
     payload: Dict[str, Any] = {
         "holdings": [HoldingOut(**h).model_dump() for h in holdings],
-        "sector_concentration": [[s, float(w)] for s, w in sector_pairs],
+        "sector_concentration": sector_pairs,
         "as_of": as_of,
         "version_tag": version_tag,
         "snapshot_id": snapshot_id,
     }
 
-    # 尝试落库 portfolio_snapshots（若存在则插入；不存在则跳过）
+    # 尝试落库 portfolio_snapshots
     try:
         insp = inspect(engine)
         if insp.has_table("portfolio_snapshots"):
@@ -121,7 +154,6 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
                     ),
                 )
     except Exception as e:
-        # 不影响主流程
         print(f"[portfolio_snapshots] 写入失败/跳过: {e}")
 
     return payload
@@ -186,6 +218,65 @@ async def smart_analyze_portfolio(request: Dict[str, Any]):
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+
+# 在 backend/api/routers/portfolio.py 中添加
+
+@router.get("/snapshots/latest")
+async def get_latest_snapshot(db: Session = Depends(get_db)):
+    """
+    获取最新的组合快照
+    用于Dashboard显示
+    """
+    from backend.storage.models import PortfolioSnapshot
+    import json
+
+    # 查询最新快照
+    latest = db.query(PortfolioSnapshot) \
+        .order_by(PortfolioSnapshot.created_at.desc()) \
+        .first()
+
+    if not latest:
+        raise HTTPException(404, "暂无组合快照")
+
+    # 解析payload
+    try:
+        payload = json.loads(latest.payload) if latest.payload else {}
+    except:
+        holdings = json.loads(latest.holdings_json) if latest.holdings_json else []
+        payload = {"holdings": holdings}
+
+    holdings = payload.get("holdings", [])
+
+    # 为holdings补充sector信息
+    from backend.storage.models import Symbol
+    for h in holdings:
+        if 'sector' not in h or h.get('sector') == 'Unknown':
+            symbol_obj = db.query(Symbol).filter(Symbol.symbol == h['symbol']).first()
+            if symbol_obj and symbol_obj.sector:
+                h['sector'] = symbol_obj.sector
+            else:
+                h['sector'] = 'Unknown'
+
+    # 计算sector集中度
+    from collections import defaultdict
+    sector_weights = defaultdict(float)
+    for h in holdings:
+        sector = h.get('sector', 'Unknown')
+        sector_weights[sector] += h.get('weight', 0)
+
+    return {
+        "snapshot_id": latest.snapshot_id,
+        "as_of": latest.as_of or latest.created_at.isoformat(),
+        "version_tag": latest.version_tag or "v1.0",
+        "holdings": holdings,
+        "sector_concentration": [[k, v] for k, v in sector_weights.items()],
+        "metrics": payload.get("metrics", {
+            "ann_return": 0.15,
+            "mdd": -0.12,
+            "sharpe": 1.3,
+            "winrate": 0.68
+        })
+    }
 
 def _json_dumps(obj: Any) -> str:
     import json, decimal

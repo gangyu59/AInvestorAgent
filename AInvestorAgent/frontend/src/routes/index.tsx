@@ -12,8 +12,7 @@ import { DashboardFooter } from "../components/dashboard/Footer";
 import { DecisionTracking } from "../components/dashboard/DecisionTracking";
 import { DecisionHistoryModal } from "../components/dashboard/DecisionHistoryModal";
 import { API_BASE } from "../services/endpoints";
-import { aiSmartDecide } from "../services/endpoints";
-import { getWatchlist } from "../services/endpoints";
+import { aiSmartDecide, getWatchlist } from "../services/endpoints";
 
 const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
 
@@ -37,53 +36,89 @@ export default function Dashboard() {
     result: null as any,
   });
 
-  // ===== 首屏示例数据（按你原结构）=====
+  // 🔄 完整的数据加载逻辑
   useEffect(() => {
-    async function loadWatchlist() {
+    async function loadAllData() {
+      // 1. 加载watchlist
       try {
-        const data = await getWatchlist();
-        setSymbols(data && data.length > 0 ? data : DEFAULT_SYMBOLS);
+        const watchlistData = await getWatchlist();
+        if (watchlistData && watchlistData.length > 0) {
+          setSymbols(watchlistData);
+        } else {
+          setSymbols(DEFAULT_SYMBOLS);
+        }
       } catch (e) {
         console.error("加载watchlist失败:", e);
         setSymbols(DEFAULT_SYMBOLS);
       }
+
+      // 2. 🔄 加载真实的最新组合快照
+      try {
+        const response = await fetch(`${API_BASE}/api/portfolio/snapshots/latest`);
+        if (response.ok) {
+          const latestSnapshot = await response.json();
+          console.log("✅ 加载最新组合成功:", latestSnapshot);
+
+          // 转换为Dashboard需要的格式
+          setSnapshot({
+            weights: latestSnapshot.holdings?.reduce((acc: any, h: any) => {
+              acc[h.symbol] = h.weight;
+              return acc;
+            }, {}) || {},
+            metrics: latestSnapshot.metrics || {},
+            version_tag: latestSnapshot.version_tag || "v1.0",
+            snapshot_id: latestSnapshot.snapshot_id
+          });
+        } else {
+          console.log("⚠️ 暂无组合快照,使用空数据");
+          setSnapshot({
+            weights: {},
+            metrics: {},
+            version_tag: "无数据",
+          });
+        }
+      } catch (e) {
+        console.error("加载组合快照失败:", e);
+        setSnapshot({
+          weights: {},
+          metrics: {},
+          version_tag: "加载失败",
+        });
+      }
+
+      // 3. 其他mock数据(保持不变)
+      setScores([
+        { symbol: "AAPL", score: { score: 82, factors: { value: 0.7, quality: 0.8, momentum: 0.6, growth: 0.9, news: 0.3 } }, as_of: "2025-01-15" },
+        { symbol: "MSFT", score: { score: 78, factors: { value: 0.6, quality: 0.9, momentum: 0.7, growth: 0.8, news: 0.5 } }, as_of: "2025-01-15" },
+        { symbol: "NVDA", score: { score: 85, factors: { value: 0.4, quality: 0.7, momentum: 0.9, growth: 1.0, news: 0.8 } }, as_of: "2025-01-15" },
+        { symbol: "AMZN", score: { score: 75, factors: { value: 0.5, quality: 0.6, momentum: 0.8, growth: 0.7, news: 0.4 } }, as_of: "2025-01-15" },
+        { symbol: "GOOGL", score: { score: 80, factors: { value: 0.8, quality: 0.8, momentum: 0.5, growth: 0.6, news: 0.6 } }, as_of: "2025-01-15" },
+      ]);
+
+      setSentiment({
+        loading: false,
+        latest_news: [
+          { title: "Apple 发布新款 Vision Pro", url: "#", score: 0.7 },
+          { title: "微软 Azure 增长超预期", url: "#", score: 0.5 },
+          { title: "英伟达 GPU 需求持续强劲", url: "#", score: 0.8 },
+          { title: "META AI 新模型上线", url: "#", score: 0.3 },
+          { title: "特斯拉交付数据创新高", url: "#", score: 0.6 },
+          { title: "谷歌云拿下大单", url: "#", score: 0.4 },
+        ],
+      });
+
+      setLatestDecision({
+        date: "2025-10-01",
+        holdings_count: 5,
+        version_tag: "v1.2",
+        performance: { today_change: 1.2, total_return: 8.5, days_since: 2 },
+      });
     }
-    loadWatchlist();
+
+    loadAllData();
   }, []);
 
-  useEffect(() => {
-    setSnapshot({
-      weights: { AAPL: 0.25, MSFT: 0.2, NVDA: 0.15, AMZN: 0.2, GOOGL: 0.2 },
-      metrics: { ann_return: 0.15, mdd: -0.12, sharpe: 1.3, winrate: 0.68 },
-      version_tag: "ai_v1.2",
-    });
-    setScores([
-      { symbol: "AAPL", score: { score: 82, factors: { value: 0.7, quality: 0.8, momentum: 0.6, growth: 0.9, news: 0.3 } }, as_of: "2025-01-15" },
-      { symbol: "MSFT", score: { score: 78, factors: { value: 0.6, quality: 0.9, momentum: 0.7, growth: 0.8, news: 0.5 } }, as_of: "2025-01-15" },
-      { symbol: "NVDA", score: { score: 85, factors: { value: 0.4, quality: 0.7, momentum: 0.9, growth: 1.0, news: 0.8 } }, as_of: "2025-01-15" },
-      { symbol: "AMZN", score: { score: 75, factors: { value: 0.5, quality: 0.6, momentum: 0.8, growth: 0.7, news: 0.4 } }, as_of: "2025-01-15" },
-      { symbol: "GOOGL", score: { score: 80, factors: { value: 0.8, quality: 0.8, momentum: 0.5, growth: 0.6, news: 0.6 } }, as_of: "2025-01-15" },
-    ]);
-    setSentiment({
-      loading: false,
-      latest_news: [
-        { title: "Apple 发布新款 Vision Pro", url: "#", score: 0.7 },
-        { title: "微软 Azure 增长超预期", url: "#", score: 0.5 },
-        { title: "英伟达 GPU 需求持续强劲", url: "#", score: 0.8 },
-        { title: "META AI 新模型上线", url: "#", score: 0.3 },
-        { title: "特斯拉交付数据创新高", url: "#", score: 0.6 },
-        { title: "谷歌云拿下大单", url: "#", score: 0.4 },
-      ],
-    });
-    setLatestDecision({
-      date: "2025-10-01",
-      holdings_count: 5,
-      version_tag: "v1.2",
-      performance: { today_change: 1.2, total_return: 8.5, days_since: 2 },
-    });
-  }, []);
-
-  // ==== 修复类型：确保 Object.entries 返回 [string, number][] ====
+  // ==== 修复类型:确保 Object.entries 返回 [string, number][] ====
   const keptTop5: Array<[string, number]> = useMemo(() => {
     const weights: Record<string, number> = (snapshot && snapshot.weights) || {};
     return Object.entries(weights)
@@ -101,10 +136,19 @@ export default function Dashboard() {
     }
   };
 
-  // ===== 🔧 修复：真正的智能决策函数 =====
+  // ===== 🔧 修复:真正的智能决策函数 =====
+  // 在你的组件顶部，确保有这些状态定义
+  const [isDeciding, setIsDeciding] = useState(false);
+
+  // 完整的 onDecide 函数
   async function onDecide() {
-    console.log("🎯 首页：开始智能决策");
+    if (isDeciding) return;  // 防止重复点击
+
+    console.log("🎯 首页:开始智能决策");
     console.log("📋 使用股票列表:", symbols);
+
+    setIsDeciding(true);
+    setError(null);
 
     setLoadingState({
       visible: true,
@@ -123,34 +167,21 @@ export default function Dashboard() {
     });
 
     try {
-      // 步骤 1: 模拟数据拉取
-      setLoadingState(prev => ({ ...prev, currentStep: 0, progress: 20 }));
-      await new Promise(r => setTimeout(r, 300));
-
-      // 步骤 2-4: 模拟计算过程
-      for (let i = 1; i < 4; i++) {
+      // 步骤 1-4: 模拟进度
+      for (let i = 0; i < 4; i++) {
         setLoadingState(prev => ({ ...prev, currentStep: i, progress: 20 + i * 15 }));
         await new Promise(r => setTimeout(r, 300));
       }
 
       // 步骤 5: 调用真实 API
-      setLoadingState(prev => ({ ...prev, currentStep: 4, progress: 80, message: "生成投资组合..." }));
+      setLoadingState(prev => ({
+        ...prev,
+        currentStep: 4,
+        progress: 80,
+        message: "生成投资组合..."
+      }));
 
-      // console.log("📡 调用 portfolio/propose API");
-      // const response = await fetch(`${API_BASE}/api/portfolio/propose`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ symbols })
-      // });
-      //
-      // if (!response.ok) {
-      //   throw new Error(`API 返回错误: ${response.status}`);
-      // }
-      //
-      // const data = await response.json();
-      // console.log("✅ 组合生成成功:", data);
-
-      console.log("📡 调用 orchestrator/decide（LLM增强）");
+      console.log("📡 调用 orchestrator/decide");
       const data = await aiSmartDecide({
         symbols,
         topk: 15,
@@ -163,44 +194,105 @@ export default function Dashboard() {
           "risk.max_positions": 10,
         },
       });
-      console.log("✅ 组合生成成功:", data);
+      console.log("✅ API返回数据:", data);
 
+      // 优先检查API是否直接返回了holdings
+      if (data.holdings && Array.isArray(data.holdings) && data.holdings.length > 0) {
+        console.log("✅ API直接返回了holdings，无需查快照");
+        const realHoldings = data.holdings;
+        const realCount = realHoldings.length;
 
-      // 显示成功结果
-      setLoadingState(prev => ({
-        ...prev,
-        progress: 100,
-        showResult: true,
-        result: {
-          ok: true,
-          snapshot_id: data.snapshot_id,
-          holdings_count: data.holdings?.length || 0,
-          message: `成功生成 ${data.holdings?.length || 0} 只股票的投资组合`
-        }
-      }));
+        setLoadingState(prev => ({
+          ...prev,
+          progress: 100,
+          showResult: true,
+          result: {
+            ok: true,
+            snapshot_id: data.snapshot_id || `temp-${Date.now()}`,
+            holdings_count: realCount,
+            message: `成功生成 ${realCount} 只股票的投资组合`,
+            all_holdings: realHoldings.map((h: any) => ({
+              symbol: h.symbol,
+              weight: h.weight || 0,
+              score: h.score || 0,
+              reasons: h.reasons || [],
+              sector: h.sector || h.industry || 'Technology'
+            }))
+          }
+        }));
+        setIsDeciding(false);
+        return;
+      }
 
-      // 2秒后自动跳转
-      setTimeout(() => {
-        console.log("🔄 跳转到 portfolio 页面");
-        // 方式1: 直接传 symbols 参数让 portfolio 页面调用 API
-        window.location.hash = `#/portfolio?symbols=${encodeURIComponent(symbols.join(','))}`;
+      // 如果没有直接holdings，才查快照
+      const snapshotId = data.snapshot_id;
+      if (!snapshotId) {
+        throw new Error("API既没有返回holdings，也没有返回快照ID");
+      }
 
-        // 方式2: 如果有 snapshot_id，直接跳转到快照
-        // window.location.hash = `#/portfolio?sid=${data.snapshot_id}`;
-      }, 2000);
+      console.log("📡 读取快照数据:", snapshotId);
+      const snapshotRes = await fetch(`${API_BASE}/api/portfolio/snapshot/${snapshotId}`);
+      const snapshotData = await snapshotRes.json();
+      console.log("✅ 快照真实数据:", snapshotData);
+
+      const realHoldings = snapshotData.holdings || [];
+      const realCount = realHoldings.length;
+
+      if (realCount === 0) {
+        setLoadingState(prev => ({
+          ...prev,
+          progress: 100,
+          showResult: true,
+          result: {
+            ok: false,
+            message: "暂无符合条件的推荐股票",
+            details: "可能原因：\n• 股票评分未达标\n• 约束条件过严\n• 数据暂时不可用",
+            snapshot_id: snapshotId
+          }
+        }));
+      } else {
+        setLoadingState(prev => ({
+          ...prev,
+          progress: 100,
+          showResult: true,
+          result: {
+            ok: true,
+            snapshot_id: snapshotId,
+            holdings_count: realCount,
+            message: `成功生成 ${realCount} 只股票的投资组合`,
+            all_holdings: realHoldings.map((h: any) => ({
+              symbol: h.symbol,
+              weight: h.weight,
+              score: h.score || 0,
+              reasons: h.reasons || [],
+              sector: h.sector || h.industry || 'Technology'
+            }))
+          }
+        }));
+      }
 
     } catch (e: any) {
       console.error("❌ 智能决策失败:", e);
       setLoadingState(prev => ({
         ...prev,
+        progress: 0,
+        visible: true,
         showResult: true,
         result: {
           ok: false,
-          message: e?.message || "AI决策失败，请稍后重试"
+          message: e?.message || "AI决策失败,请稍后重试",
+          details: e?.response?.data?.detail || e?.stack || "网络或服务器错误"
         }
       }));
       setError(e?.message || "AI决策失败");
+    } finally {
+      setIsDeciding(false);
     }
+  }
+
+  // 辅助函数：提取快照ID
+  function extractSnapshotId(data: any): string | null {
+    return data.snapshot_id || data.portfolio_id || data.id || null;
   }
 
   async function onRunBacktest() {
@@ -239,11 +331,9 @@ export default function Dashboard() {
         result={loadingState.result}
         onResultClose={handleResultClose}
         onViewPortfolio={() => {
-          // 如果有 snapshot_id，跳转到快照查看
           if (loadingState.result?.snapshot_id) {
             window.location.hash = `#/portfolio?sid=${loadingState.result.snapshot_id}`;
           } else {
-            // 否则跳转到创建页面
             window.location.hash = `#/portfolio?symbols=${encodeURIComponent(symbols.join(','))}`;
           }
         }}

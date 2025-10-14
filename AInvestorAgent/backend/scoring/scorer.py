@@ -15,10 +15,11 @@ BASE_WEIGHTS = {"value": 0.25, "quality": 0.20, "momentum": 0.35, "sentiment": 0
 @dataclass
 class FactorRow:
     symbol: str
-    f_value: Optional[float]     # 0..1 或 None
-    f_quality: Optional[float]
-    f_momentum_raw: Optional[float]  # 原始收益率，先不缩放
-    f_sentiment: Optional[float]     # 0..1 或 None
+    f_value: Optional[float] = None
+    f_quality: Optional[float] = None
+    f_momentum_raw: Optional[float] = None
+    f_sentiment: Optional[float] = None
+    f_momentum: Optional[float] = None
 
 def _minmax_scale(arr: List[Optional[float]]) -> List[Optional[float]]:
     vals = [x for x in arr if x is not None]
@@ -29,19 +30,92 @@ def _minmax_scale(arr: List[Optional[float]]) -> List[Optional[float]]:
         return [0.5 if x is not None else None for x in arr]
     return [None if x is None else (x - lo) / (hi - lo) for x in arr]
 
+
 def compute_factors(db: Session, symbols: List[str], asof: date) -> List[FactorRow]:
     rows: List[FactorRow] = []
     for s in symbols:
+        # 动量和情绪（你已有的）
         mom_r = momentum_return(db, s, asof, lookback_days=60)
-        senti = avg_sentiment_7d(db, s, asof, days=7)
-        # 价值/质量先留空（未来接 fundamentals），用 None 表示缺失
-        rows.append(FactorRow(symbol=s, f_value=None, f_quality=None,
-                              f_momentum_raw=mom_r, f_sentiment=senti))
-    # 将动量收益率 min-max 到 0..1
+        senti = avg_sentiment_7d(db, s, asof, days=30)
+
+        # ⭐ 添加价值和质量因子计算
+        f_value = _compute_value_factor(db, s, asof)
+        f_quality = _compute_quality_factor(db, s, asof)
+
+        rows.append(FactorRow(
+            symbol=s,
+            f_value=f_value,  # 不再是 None
+            f_quality=f_quality,  # 不再是 None
+            f_momentum_raw=mom_r,
+            f_sentiment=senti
+        ))
+
+    # min-max 缩放动量
     scaled = _minmax_scale([r.f_momentum_raw for r in rows])
     for r, m in zip(rows, scaled):
         r.f_momentum = m
     return rows
+
+
+# ⭐ 添加这两个辅助函数
+# def _compute_value_factor(db: Session, symbol: str, asof: date) -> float:
+#     """计算价值因子（基于 PE/PB）"""
+#     from backend.storage.models import Fundamentals
+#
+#     fund = db.query(Fundamentals).filter(
+#         Fundamentals.symbol == symbol
+#     ).order_by(Fundamentals.as_of.desc()).first()
+#
+#     if not fund:
+#         return 0.5  # 默认中性
+#
+#     scores = []
+#     # PE因子（低PE高分）
+#     if fund.pe and fund.pe > 0:
+#         pe_score = max(0, min(1, (30 - fund.pe) / 15))
+#         scores.append(pe_score)
+#
+#     # PB因子（低PB高分）
+#     if fund.pb and fund.pb > 0:
+#         pb_score = max(0, min(1, (5 - fund.pb) / 3))
+#         scores.append(pb_score)
+#
+#     return sum(scores) / len(scores) if scores else 0.5
+#
+#
+# def _compute_quality_factor(db: Session, symbol: str, asof: date) -> float:
+#     """计算质量因子（基于 ROE/净利率）"""
+#     from backend.storage.models import Fundamentals
+#
+#     fund = db.query(Fundamentals).filter(
+#         Fundamentals.symbol == symbol
+#     ).order_by(Fundamentals.as_of.desc()).first()
+#
+#     if not fund:
+#         return 0.5  # 默认中性
+#
+#     scores = []
+#     # ROE因子
+#     if fund.roe is not None:
+#         roe_score = max(0, min(1, (fund.roe + 10) / 30))
+#         scores.append(roe_score)
+#
+#     # 净利率因子
+#     if fund.net_margin is not None:
+#         margin_score = max(0, min(1, (fund.net_margin + 5) / 20))
+#         scores.append(margin_score)
+#
+#     return sum(scores) / len(scores) if scores else 0.5
+
+
+def _compute_value_factor(db: Session, symbol: str, asof: date) -> float:
+    """计算价值因子（暂无基本面数据，返回中性值）"""
+    return 0.5
+
+def _compute_quality_factor(db: Session, symbol: str, asof: date) -> float:
+    """计算质量因子（暂无基本面数据，返回中性值）"""
+    return 0.5
+
 
 def aggregate_score(row: FactorRow, weights: Dict[str, float]=BASE_WEIGHTS) -> float:
     parts = []

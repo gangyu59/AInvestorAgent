@@ -24,19 +24,19 @@ def score_batch(payload: BatchPayload, db: Session = Depends(get_db)):
     as_of = date.fromisoformat(payload.as_of) if payload.as_of else date.today()
     version_tag = getattr(WEIGHTS, "version_tag", None) or getattr(WEIGHTS, "VERSION", None) or "v1.0.0"
 
+    # ⭐ 在循环外一次性计算所有因子
+    try:
+        all_rows = compute_factors(db, symbols, as_of)
+        rows_dict = {r.symbol: r for r in all_rows}  # ⭐ 建立symbol到结果的映射
+    except Exception as e:
+        print(f"因子计算失败: {e}")
+        rows_dict = {}
+
     items = []
 
     for sym in symbols:
-        # --- 计算因子 ---
-        rows = []
-        try:
-            # 注意：不再传 mock=，避免 TypeError
-            rows = compute_factors(db, [sym], as_of)
-        except TypeError:
-            # 兼容没有 as_of 的旧签名：compute_factors(db, [sym])
-            rows = compute_factors(db, [sym])
-
-        r = rows[0] if rows else None
+        # ⭐ 从字典中获取对应股票的结果
+        r = rows_dict.get(sym)
 
         if r is not None:
             # r 很可能是 Pydantic/ORM 对象，用 getattr 安全取值
@@ -49,7 +49,6 @@ def score_batch(payload: BatchPayload, db: Session = Depends(get_db)):
             try:
                 total = float(aggregate_score(r))
             except TypeError:
-                # 旧实现可能需要权重：aggregate_score(r, WEIGHTS)
                 total = float(aggregate_score(r, WEIGHTS))
 
             item = {
