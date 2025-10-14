@@ -21,100 +21,165 @@ class FactorRow:
     f_sentiment: Optional[float] = None
     f_momentum: Optional[float] = None
 
+
 def _minmax_scale(arr: List[Optional[float]]) -> List[Optional[float]]:
     vals = [x for x in arr if x is not None]
     if not vals:
-        return [None]*len(arr)
+        return [None] * len(arr)
+
     lo, hi = min(vals), max(vals)
-    if hi - lo < 1e-12:
+
+    # ⭐ 修改这里：单值时直接返回原值（不缩放）
+    if len(vals) == 1:
+        return arr  # 单值不缩放，保持原值
+
+    if hi - lo < 1e-12:  # 多个值但都相同
         return [0.5 if x is not None else None for x in arr]
+
     return [None if x is None else (x - lo) / (hi - lo) for x in arr]
 
 
 def compute_factors(db: Session, symbols: List[str], asof: date) -> List[FactorRow]:
     rows: List[FactorRow] = []
     for s in symbols:
-        # 动量和情绪（你已有的）
+        # 动量和情绪
         mom_r = momentum_return(db, s, asof, lookback_days=60)
         senti = avg_sentiment_7d(db, s, asof, days=30)
 
-        # ⭐ 添加价值和质量因子计算
+        # ⭐ 添加调试输出
+        print(f"  {s} 原始动量返回值={mom_r}")
+
+        # 添加价值和质量因子计算
         f_value = _compute_value_factor(db, s, asof)
         f_quality = _compute_quality_factor(db, s, asof)
 
         rows.append(FactorRow(
             symbol=s,
-            f_value=f_value,  # 不再是 None
-            f_quality=f_quality,  # 不再是 None
-            f_momentum_raw=mom_r,
+            f_value=f_value,
+            f_quality=f_quality,
+            f_momentum_raw=mom_r,  # ⭐ 保存原始值
             f_sentiment=senti
         ))
 
-    # min-max 缩放动量
-    scaled = _minmax_scale([r.f_momentum_raw for r in rows])
+    # ⭐ 调试：显示缩放前后的动量值
+    raw_momentums = [r.f_momentum_raw for r in rows]
+    print(f"\n📊 缩放前动量列表: {raw_momentums}")
+
+    scaled = _minmax_scale(raw_momentums)
+    print(f"📊 缩放后动量列表: {scaled}\n")
+
     for r, m in zip(rows, scaled):
         r.f_momentum = m
     return rows
 
 
-# ⭐ 添加这两个辅助函数
-# def _compute_value_factor(db: Session, symbol: str, asof: date) -> float:
-#     """计算价值因子（基于 PE/PB）"""
-#     from backend.storage.models import Fundamentals
-#
-#     fund = db.query(Fundamentals).filter(
-#         Fundamentals.symbol == symbol
-#     ).order_by(Fundamentals.as_of.desc()).first()
-#
-#     if not fund:
-#         return 0.5  # 默认中性
-#
-#     scores = []
-#     # PE因子（低PE高分）
-#     if fund.pe and fund.pe > 0:
-#         pe_score = max(0, min(1, (30 - fund.pe) / 15))
-#         scores.append(pe_score)
-#
-#     # PB因子（低PB高分）
-#     if fund.pb and fund.pb > 0:
-#         pb_score = max(0, min(1, (5 - fund.pb) / 3))
-#         scores.append(pb_score)
-#
-#     return sum(scores) / len(scores) if scores else 0.5
-#
-#
-# def _compute_quality_factor(db: Session, symbol: str, asof: date) -> float:
-#     """计算质量因子（基于 ROE/净利率）"""
-#     from backend.storage.models import Fundamentals
-#
-#     fund = db.query(Fundamentals).filter(
-#         Fundamentals.symbol == symbol
-#     ).order_by(Fundamentals.as_of.desc()).first()
-#
-#     if not fund:
-#         return 0.5  # 默认中性
-#
-#     scores = []
-#     # ROE因子
-#     if fund.roe is not None:
-#         roe_score = max(0, min(1, (fund.roe + 10) / 30))
-#         scores.append(roe_score)
-#
-#     # 净利率因子
-#     if fund.net_margin is not None:
-#         margin_score = max(0, min(1, (fund.net_margin + 5) / 20))
-#         scores.append(margin_score)
-#
-#     return sum(scores) / len(scores) if scores else 0.5
-
-
 def _compute_value_factor(db: Session, symbol: str, asof: date) -> float:
-    """计算价值因子（暂无基本面数据，返回中性值）"""
-    return 0.5
+    """计算价值因子(基于 PE/PB)"""
+    from backend.storage.models import Fundamental
+
+    fund = db.query(Fundamental).filter(
+        Fundamental.symbol == symbol
+    ).order_by(Fundamental.as_of.desc()).first()
+
+    if not fund:
+        print(f"  ⚠️ {symbol}: 数据库中无基本面数据")
+        return 0.5
+
+    scores = []
+
+    # PE因子(低PE高分)
+    if fund.pe and fund.pe > 0:
+        # 处理极端值：TSLA的PE=243太高
+        if fund.pe > 100:
+            pe_score = 0.0  # 估值过高，给最低分
+        elif fund.pe < 10:
+            pe_score = 1.0  # 估值很低，给最高分
+        else:
+            # 正常范围：10-50
+            pe_score = max(0, min(1, (50 - fund.pe) / 40))
+        scores.append(pe_score)
+        print(f"  {symbol} PE={fund.pe:.2f} → PE分数={pe_score:.3f}")
+    else:
+        print(f"  ⚠️ {symbol}: PE数据无效({fund.pe})")
+
+    # PB因子(低PB高分)
+    if fund.pb and fund.pb > 0:
+        # AAPL的PB=57.97太高，说明是成长股
+        if fund.pb > 20:
+            pb_score = 0.0
+        elif fund.pb < 2:
+            pb_score = 1.0
+        else:
+            # 正常范围：2-10
+            pb_score = max(0, min(1, (10 - fund.pb) / 8))
+        scores.append(pb_score)
+        print(f"  {symbol} PB={fund.pb:.2f} → PB分数={pb_score:.3f}")
+    else:
+        print(f"  ⚠️ {symbol}: PB数据无效({fund.pb})")
+
+    if not scores:
+        print(f"  ⚠️ {symbol}: 无有效PE/PB数据，返回中性0.5")
+        return 0.5
+
+    final = sum(scores) / len(scores)
+    print(f"  ✅ {symbol} 价值因子={final:.3f}")
+    return final
+
 
 def _compute_quality_factor(db: Session, symbol: str, asof: date) -> float:
-    """计算质量因子（暂无基本面数据，返回中性值）"""
-    return 0.5
+    """计算质量因子(基于 ROE/净利率)"""
+    from backend.storage.models import Fundamental
+
+    fund = db.query(Fundamental).filter(
+        Fundamental.symbol == symbol
+    ).order_by(Fundamental.as_of.desc()).first()
+
+    if not fund:
+        print(f"  ⚠️ {symbol}: 数据库中无基本面数据")
+        return 0.5
+
+    scores = []
+
+    # ROE因子（注意：数据库里的ROE可能是小数或百分比）
+    if fund.roe is not None and fund.roe != 0:
+        # 判断是小数格式(0.xx)还是百分比格式(xx.xx)
+        roe_pct = fund.roe if fund.roe > 1 else fund.roe * 100
+
+        if roe_pct < 0:
+            roe_score = 0.0  # 负ROE最低分
+        elif roe_pct > 30:
+            roe_score = 1.0  # 超高ROE最高分
+        else:
+            # 正常范围：0-30%
+            roe_score = max(0, min(1, roe_pct / 30))
+        scores.append(roe_score)
+        print(f"  {symbol} ROE={roe_pct:.2f}% → ROE分数={roe_score:.3f}")
+    else:
+        print(f"  ⚠️ {symbol}: ROE数据无效({fund.roe})")
+
+    # 净利率因子
+    if fund.net_margin is not None and fund.net_margin != 0:
+        margin_pct = fund.net_margin if fund.net_margin > 1 else fund.net_margin * 100
+
+        if margin_pct < 0:
+            margin_score = 0.0
+        elif margin_pct > 25:
+            margin_score = 1.0
+        else:
+            # 正常范围：0-25%
+            margin_score = max(0, min(1, margin_pct / 25))
+        scores.append(margin_score)
+        print(f"  {symbol} 净利率={margin_pct:.2f}% → 利润率分数={margin_score:.3f}")
+    else:
+        print(f"  ⚠️ {symbol}: 净利率数据无效({fund.net_margin})")
+
+    if not scores:
+        print(f"  ⚠️ {symbol}: 无有效ROE/净利率数据，返回中性0.5")
+        return 0.5
+
+    final = sum(scores) / len(scores)
+    print(f"  ✅ {symbol} 质量因子={final:.3f}")
+    return final
 
 
 def aggregate_score(row: FactorRow, weights: Dict[str, float]=BASE_WEIGHTS) -> float:

@@ -36,6 +36,34 @@ class PriceDaily(Base):
     volume: Mapped[int | None] = mapped_column(Integer)
 
 
+class Fundamental(Base):
+    __tablename__ = "fundamentals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String, nullable=False, index=True)
+    as_of = Column(Date, nullable=False, index=True)
+    pe = Column(Float, nullable=True)
+    pb = Column(Float, nullable=True)
+    ps = Column(Float, nullable=True)
+    roe = Column(Float, nullable=True)
+    roa = Column(Float, nullable=True)
+    net_margin = Column(Float, nullable=True)
+    gross_margin = Column(Float, nullable=True)
+    market_cap = Column(Integer, nullable=True)
+    sector = Column(String, nullable=True)
+    industry = Column(String, nullable=True)
+    beta = Column(Float, nullable=True)
+    dividend_yield = Column(Float, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'as_of', name='uix_fundamental_symbol_as_of'),
+        Index('ix_fundamental_symbol', 'symbol'),
+        Index('ix_fundamental_as_of', 'as_of'),
+    )
+
+    def __repr__(self):
+        return f"<Fundamental(symbol={self.symbol}, as_of={self.as_of}, pe={self.pe})>"
+
 class TraceRecord(Base):
     __tablename__ = "traces"
     trace_id   = sa.Column(sa.String, primary_key=True)

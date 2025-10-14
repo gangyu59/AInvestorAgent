@@ -41,23 +41,28 @@ def main(argv=None):
             symbols = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
         print(f"🧮 重算评分 as_of={asof} version={version_tag} symbols={symbols}")
 
-        done = 0
-        for sym in symbols:
-            try:
-                rows = compute_factors(s, [sym], asof)  # ✅ 去掉 mock=
-                if not rows:
-                    print(f"  ⚠️ {sym}: 无因子")
-                    continue
-                r = rows[0]
-                total = float(aggregate_score(r))  # 0–100
-                setattr(r, "score", total)         # 与 upsert_scores 约定一致
-                upsert_scores(s, asof, [r], version_tag=version_tag)
-                print(f"  ✅ {sym}: score={total:.1f}")
-                done += 1
-            except Exception as e:
-                print(f"  ❌ {sym}: {e}")
+        # 修改后：批量处理所有股票
+        try:
+            # ⭐ 一次性计算所有股票的因子
+            rows = compute_factors(s, symbols, asof)
 
-        print(f"完成：{done}/{len(symbols)}")
+            if not rows:
+                print(f"  ⚠️ 无可计算数据")
+            else:
+                # 批量写入评分
+                for r in rows:
+                    total = float(aggregate_score(r))
+                    setattr(r, "score", total)
+                    print(f"  ✅ {r.symbol}: score={total:.1f}")
+
+                # 批量入库
+                upsert_scores(s, asof, rows, version_tag=version_tag)
+                print(f"完成：{len(rows)}/{len(symbols)}")
+
+        except Exception as e:
+            print(f"  ❌ 批量计算失败: {e}")
+
+        print(f"\n✅ 所有股票评分已更新")
 
 if __name__ == "__main__":
     sys.exit(main())

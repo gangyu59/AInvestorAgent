@@ -44,26 +44,26 @@ def main(argv=None):
             symbols = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
         print(f"🔧 重建因子 as_of={asof} symbols={symbols}")
 
-        done = 0
-        for sym in symbols:
-            try:
-                rows = compute_factors(s, [sym], asof)  # ✅ 去掉 mock=
-                if not rows:
-                    print(f"  ⚠️ {sym}: 无可计算数据")
-                    continue
+        try:
+            rows = compute_factors(s, symbols, asof)  # ← 传入整个列表
+            if not rows:
+                print(f"  ⚠️ 无可计算数据")
+            else:
+                # 批量入库
                 if upsert_factors:
                     upsert_factors(s, asof, rows)
-                r = rows[0]
-                print(f"  ✅ {sym}: "
-                      f"f_value={getattr(r,'f_value',None)} "
-                      f"f_quality={getattr(r,'f_quality',None)} "
-                      f"f_momentum={getattr(r,'f_momentum',None)} "
-                      f"f_sentiment={getattr(r,'f_sentiment',None)}")
-                done += 1
-            except Exception as e:
-                print(f"  ❌ {sym}: {e}")
 
-        print(f"完成：{done}/{len(symbols)}")
+                # 显示结果
+                for r in rows:
+                    print(f"  ✅ {r.symbol}: "
+                          f"f_value={r.f_value:.3f} "
+                          f"f_quality={r.f_quality:.3f} "
+                          f"f_momentum={r.f_momentum:.3f} "
+                          f"f_sentiment={r.f_sentiment:.3f}")
+        except Exception as e:
+            print(f"  ❌ 计算失败: {e}")
+
+        print(f"完成")
 
 if __name__ == "__main__":
     sys.exit(main())

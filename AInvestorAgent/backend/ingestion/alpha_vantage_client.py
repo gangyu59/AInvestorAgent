@@ -131,6 +131,19 @@ class AlphaVantageClient:
     def normalize_daily(self, raw: Dict, symbol: str) -> List[PriceRow]:
         return normalize_daily(raw, symbol)
 
+    def get_company_overview(self, symbol: str) -> Dict:
+        """
+        获取公司基本面数据（OVERVIEW端点）
+        返回字段包括：PERatio, PriceToBookRatio, ReturnOnEquityTTM,
+                    ProfitMargin, MarketCapitalization, Sector, Industry等
+        """
+        return self._get({
+            "function": "OVERVIEW",
+            "symbol": symbol.upper(),
+        })
+
+
+
     # 如需扩展：可继续加 quote/overview 等端点
     # def get_quote_raw(self, symbol: str) -> Dict: ...
     # def normalize_quote(self, raw: Dict) -> Dict: ...
