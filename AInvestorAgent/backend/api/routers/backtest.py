@@ -66,7 +66,18 @@ def compute_metrics(nav: List[float]) -> Dict[str, float]:
         sharpe = (mean/std*math.sqrt(252)) if std > 0 else 0.0
     else:
         sharpe = 0.0
-    return {"ann_return": float(ann), "sharpe": float(sharpe), "max_dd": float(mdd), "win_rate": 0.0}
+    if rets:
+        winning_days = sum(1 for r in rets if r > 0)
+        win_rate = winning_days / len(rets)
+    else:
+        win_rate = 0.0
+
+    return {
+        "ann_return": float(ann),
+        "sharpe": float(sharpe),
+        "max_dd": float(mdd),
+        "win_rate": float(win_rate)  # 添加这个
+    }
 
 def fetch_price_series_local(symbol: str, days: int) -> List[Dict[str, Any]]:
     """

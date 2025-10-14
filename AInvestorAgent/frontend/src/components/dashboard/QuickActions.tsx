@@ -1,5 +1,58 @@
 // frontend/src/components/dashboard/QuickActions.tsx
+import { API_BASE } from "../../services/endpoints";
+
 export function QuickActions({ onUpdate }: { onUpdate: () => void }) {
+
+  // 🎯 回测模拟：使用首页已显示的最新快照
+  const handleQuickBacktest = async () => {
+    try {
+      console.log("🎯 快速回测：获取最新组合快照");
+
+      // 1️⃣ 获取最新快照（首页也在用这个接口）
+      const response = await fetch(`${API_BASE}/api/portfolio/snapshots/latest`);
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          alert("暂无组合快照，请先在组合页面创建一个投资组合。");
+          window.location.hash = "#/portfolio";
+          return;
+        }
+        throw new Error(`获取快照失败: HTTP ${response.status}`);
+      }
+
+      const snapshot = await response.json();
+      console.log("✅ 获取到最新快照:", snapshot);
+
+      // 2️⃣ 验证快照数据
+      if (!snapshot.holdings || snapshot.holdings.length === 0) {
+        alert("当前快照无持仓数据，请重新生成组合。");
+        window.location.hash = "#/portfolio";
+        return;
+      }
+
+      // 3️⃣ 保存到 sessionStorage（供 Simulator 读取）
+      const backtestData = {
+        holdings: snapshot.holdings.map((h: any) => ({
+          symbol: h.symbol,
+          weight: h.weight
+        })),
+        snapshot_id: snapshot.snapshot_id,
+        as_of: snapshot.as_of,
+        from: 'quickaction'
+      };
+
+      sessionStorage.setItem('backtestHoldings', JSON.stringify(backtestData));
+      console.log("💾 数据已保存到 sessionStorage");
+
+      // 4️⃣ 跳转到 Simulator（带 sid 参数）
+      window.location.hash = `#/simulator?sid=${encodeURIComponent(snapshot.snapshot_id)}`;
+
+    } catch (error: any) {
+      console.error("❌ 快速回测失败:", error);
+      alert(`启动回测失败: ${error.message}\n\n请检查后端服务是否正常运行。`);
+    }
+  };
+
   return (
     <div className="dashboard-card quick-actions-card">
       <div className="dashboard-card-header">
@@ -65,15 +118,15 @@ export function QuickActions({ onUpdate }: { onUpdate: () => void }) {
             </div>
           </button>
 
-          {/* 回测模拟 */}
+          {/* 🔧 修复：回测模拟 - 使用已有快照 */}
           <button
-            onClick={() => (window.location.hash = "#/simulator")}
+            onClick={handleQuickBacktest}
             className="action-btn action-btn-purple"
           >
             <div className="action-icon">📈</div>
             <div className="action-content">
               <div className="action-title">回测模拟</div>
-              <div className="action-desc">策略验证</div>
+              <div className="action-desc">验证当前组合</div>
             </div>
           </button>
         </div>
