@@ -13,10 +13,19 @@ export type PricePoint = {
 export type BatchScoreItem = {
   symbol: string;
   factors?: {
-    f_value?: number; f_quality?: number; f_momentum?: number; f_sentiment?: number; f_risk?: number;
+    f_value?: number;
+    f_quality?: number;
+    f_momentum?: number;
+    f_sentiment?: number;
+    f_risk?: number;
   } | null;
   score?: {
-    value?: number; quality?: number; momentum?: number; sentiment?: number; score?: number; version_tag?: string;
+    value?: number;
+    quality?: number;
+    momentum?: number;
+    sentiment?: number;
+    score?: number;
+    version_tag?: string;
   } | null;
   updated_at?: string;
 };
@@ -95,7 +104,7 @@ export default function StockPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // 新增：智能分析相关状态
+  // AI智能分析状态
   const [smartAnalysis, setSmartAnalysis] = useState<any>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
@@ -110,7 +119,7 @@ export default function StockPage() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  // 加载价格 + 评分
+  // ✅ 加载价格 + 评分（统一数据源）
   useEffect(() => {
     let dead = false;
 
@@ -121,12 +130,16 @@ export default function StockPage() {
       try {
         const range = RANGES.find(r => r.key === rangeKey) || RANGES[2];
 
-        // 分别处理，不用Promise.all
+        // 价格数据
         const px = await fetchDailyPrices(symbol, range.limit);
+
+        // 量化评分（与首页同源）
         let sc;
         try {
           sc = await fetchScores([symbol]);
+          console.log("📊 股票详情页-评分数据:", sc);
         } catch {
+          console.warn("⚠️ 评分API失败");
           sc = { items: [], as_of: "", version_tag: "" };
         }
 
@@ -145,15 +158,16 @@ export default function StockPage() {
     return () => { dead = true; };
   }, [symbol, rangeKey]);
 
-  // 新增：智能分析函数
+  // ✅ AI智能分析（可选触发）
   const runSmartAnalysis = async () => {
     setAnalysisLoading(true);
     try {
       const result = await fetchSmartAnalysis(symbol);
+      console.log("🤖 AI分析结果:", result);
       setSmartAnalysis(result);
     } catch (error: any) {
+      console.error('❌ AI分析失败:', error);
       setErr(`AI分析失败: ${error?.message || '未知错误'}`);
-      console.error('Smart analysis failed:', error);
     } finally {
       setAnalysisLoading(false);
     }
@@ -224,8 +238,8 @@ export default function StockPage() {
       {/* 头部 */}
       <div className="page-header" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <h2 style={{ margin: 0 }}>{symbol}</h2>
-        {typeof (score?.score?.score) === "number" && (
-          <div className="pill">Score {score!.score!.score}</div>
+        {score?.score?.score != null && typeof score.score.score === "number" && (
+          <div className="pill">Score {score.score.score.toFixed(1)}</div>
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
           {RANGES.map(r => (
@@ -332,55 +346,179 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* 新增：分析卡片区域 */}
+      {/* ✅ 分析卡片区域 */}
       {!loading && !err && (
         <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
 
-          {/* AI智能分析卡片 */}
+          {/* 📊 量化评分（主要展示，总是显示） */}
+          {score?.score ? (
+            <div className="card">
+              <div className="card-header">
+                <h3>📊 量化评分 <span style={{fontSize: '14px', color: '#6b7280', fontWeight: 'normal'}}>(因子模型)</span></h3>
+              </div>
+              <div className="card-body">
+                <div style={{ display: 'grid', gap: 12 }}>
+
+                  {/* 总分展示 - 深色主题渐变卡片 */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '16px 16px',
+                    background: (score.score.score ?? 0) >= 70
+                      ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.15) 100%)'
+                      : (score.score.score ?? 0) >= 60
+                      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.15) 100%)'
+                      : 'linear-gradient(135deg, rgba(107, 114, 128, 0.2) 0%, rgba(75, 85, 99, 0.15) 100%)',
+                    borderRadius: '8px',
+                    border: `1px solid ${
+                      (score.score.score ?? 0) >= 70 ? 'rgba(16, 185, 129, 0.3)' :
+                      (score.score.score ?? 0) >= 60 ? 'rgba(59, 130, 246, 0.3)' :
+                      'rgba(107, 114, 128, 0.2)'
+                    }`,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                  }}>
+                    <div style={{ color: '#e5e7eb' }}>
+                      <div style={{ fontSize: '13px', opacity: 0.7, marginBottom: 4 }}>综合评分</div>
+                      <div style={{ fontSize: '28px', fontWeight: 'bold', letterSpacing: '-0.5px', color:
+                        (score.score.score ?? 0) >= 70 ? '#10b981' :
+                        (score.score.score ?? 0) >= 60 ? '#60a5fa' : '#9ca3af'
+                      }}>
+                        {typeof score.score.score === 'number' ? score.score.score.toFixed(1) : '--'}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontSize: '48px',
+                      fontWeight: '200',
+                      color: 'rgba(255,255,255,0.2)',
+                      lineHeight: 1
+                    }}>
+                      /100
+                    </div>
+                  </div>
+
+                  {/* 评分分解条形图 - 优化配色和间距 */}
+                  <div style={{ fontSize: '13px', marginTop: 8 }}>
+                    <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#374151' }}>评分构成</h4>
+                    {[
+                      { label: '价值', value: score.score.value, color: '#3b82f6', weight: '25%' },
+                      { label: '质量', value: score.score.quality, color: '#10b981', weight: '20%' },
+                      { label: '动量', value: score.score.momentum, color: '#f59e0b', weight: '35%' },
+                      { label: '情绪', value: score.score.sentiment, color: '#8b5cf6', weight: '20%' }
+                    ].map(item => (
+                      <div key={item.label} style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ width: '50px', fontSize: '12px', color: '#6b7280' }}>{item.label}</span>
+                        <div style={{
+                          flex: 1,
+                          height: '20px',
+                          background: '#f3f4f6',
+                          borderRadius: '10px',
+                          marginLeft: 8,
+                          marginRight: 8,
+                          overflow: 'hidden',
+                          border: '1px solid #e5e7eb'
+                        }}>
+                          <div
+                            style={{
+                              height: '100%',
+                              background: `linear-gradient(90deg, ${item.color} 0%, ${item.color}dd 100%)`,
+                              width: `${Math.max(0, Math.min(100, (item.value || 0)))}%`,
+                              transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                              boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.3)'
+                            }}
+                          />
+                        </div>
+                        <span style={{ width: '45px', fontSize: '13px', textAlign: 'right', fontWeight: 600, color: '#111827' }}>
+                          {fmt(item.value, 0)}
+                        </span>
+                        <span style={{ width: '40px', fontSize: '11px', color: '#9ca3af', textAlign: 'right' }}>
+                          ({item.weight})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 原始因子值（可选展示） */}
+                  {score.factors && (
+                    <details style={{ fontSize: '12px', color: '#6b7280', marginTop: 4 }}>
+                      <summary style={{ cursor: 'pointer', userSelect: 'none' }}>查看原始因子值</summary>
+                      <div style={{ marginTop: 8, padding: '8px', background: '#f9fafb', borderRadius: '4px' }}>
+                        <div>f_value: {fmt(score.factors.f_value, 3)}</div>
+                        <div>f_quality: {fmt(score.factors.f_quality, 3)}</div>
+                        <div>f_momentum: {fmt(score.factors.f_momentum, 3)}</div>
+                        <div>f_sentiment: {fmt(score.factors.f_sentiment, 3)}</div>
+                      </div>
+                    </details>
+                  )}
+
+                  {score.updated_at && (
+                    <div style={{ fontSize: '12px', color: '#6b7280', textAlign: 'right', marginTop: 4 }}>
+                      更新时间: {new Date(score.updated_at).toLocaleString()}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: '11px', color: '#9ca3af', textAlign: 'right' }}>
+                    数据来源: /api/scores/batch
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="card">
+              <div className="card-header">
+                <h3>📊 量化评分</h3>
+              </div>
+              <div className="card-body" style={{ textAlign: 'center', color: '#6b7280', padding: '40px 20px' }}>
+                暂无评分数据
+                <div style={{ fontSize: '13px', marginTop: 8 }}>
+                  请确保已运行: <code style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: '3px' }}>
+                    python scripts/recompute_scores.py --symbols {symbol}
+                  </code>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 🤖 AI投资建议（可选增强） */}
           <div className="card">
             <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3>AI智能分析</h3>
+              <h3>🤖 AI投资建议 <span style={{fontSize: '14px', color: '#6b7280', fontWeight: 'normal'}}>(可选)</span></h3>
               <button
                 onClick={runSmartAnalysis}
                 disabled={analysisLoading}
                 className={`btn ${analysisLoading ? '' : 'btn-primary'}`}
                 style={{ fontSize: '14px', padding: '6px 12px' }}
               >
-                {analysisLoading ? '分析中...' : '开始AI分析'}
+                {analysisLoading ? '分析中...' : smartAnalysis ? '重新分析' : '获取AI建议'}
               </button>
             </div>
             <div className="card-body">
-              {smartAnalysis?.analysis ? (
+              {!smartAnalysis ? (
+                <div style={{ textAlign: 'center', color: '#6b7280', fontSize: '14px', padding: '30px 20px' }}>
+                  点击"获取AI建议"可使用LLM生成投资决策建议
+                  <div style={{fontSize: '12px', marginTop: 12, color: '#9ca3af', lineHeight: '1.5'}}>
+                    注意：此功能需要LLM服务，与量化评分独立<br/>
+                    提供文字化的投资逻辑与风险提示
+                  </div>
+                </div>
+              ) : smartAnalysis?.analysis ? (
                 <div style={{ display: 'grid', gap: 12 }}>
 
-                  {/* 基础评分 */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f8f9fa', borderRadius: '6px' }}>
-                    <span>综合评分</span>
+                  {/* AI综合评分 */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f0f9ff', borderRadius: '6px' }}>
+                    <span>AI综合评分</span>
                     <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#2563eb' }}>
                       {smartAnalysis.analysis.score || '--'}/100
                     </span>
                   </div>
 
-                  {/* 因子分解 */}
-                  {smartAnalysis.analysis.factors && (
-                    <div>
-                      <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>因子分析</h4>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: '13px' }}>
-                        <div>价值: {fmt(smartAnalysis.analysis.factors.value, 2)}</div>
-                        <div>质量: {fmt(smartAnalysis.analysis.factors.quality, 2)}</div>
-                        <div>动量: {fmt(smartAnalysis.analysis.factors.momentum, 2)}</div>
-                        <div>情绪: {fmt(smartAnalysis.analysis.factors.sentiment, 2)}</div>
-                      </div>
-                    </div>
-                  )}
-
                   {/* LLM分析结果 */}
                   {smartAnalysis.analysis.llm_analysis && (
                     <div>
                       <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>AI投资建议</h4>
-                      <div style={{ fontSize: '13px', lineHeight: '1.4' }}>
+                      <div style={{ fontSize: '13px', lineHeight: '1.5' }}>
                         {smartAnalysis.analysis.llm_analysis.recommendation && (
-                          <div style={{ marginBottom: 6 }}>
+                          <div style={{ marginBottom: 8, padding: '8px', background: '#f9fafb', borderRadius: '4px' }}>
                             <span style={{ fontWeight: 600 }}>建议: </span>
                             <span style={{
                               color: smartAnalysis.analysis.llm_analysis.recommendation.includes('买入') ? '#059669' :
@@ -393,7 +531,9 @@ export default function StockPage() {
                         {smartAnalysis.analysis.llm_analysis.confidence && (
                           <div style={{ marginBottom: 6 }}>
                             <span style={{ fontWeight: 600 }}>信心度: </span>
-                            {smartAnalysis.analysis.llm_analysis.confidence}/10
+                            <span style={{ color: smartAnalysis.analysis.llm_analysis.confidence >= 7 ? '#059669' : '#6b7280' }}>
+                              {smartAnalysis.analysis.llm_analysis.confidence}/10
+                            </span>
                           </div>
                         )}
                         {smartAnalysis.analysis.llm_analysis.logic && (
@@ -403,9 +543,9 @@ export default function StockPage() {
                           </div>
                         )}
                         {smartAnalysis.analysis.llm_analysis.risk && (
-                          <div style={{ marginBottom: 6 }}>
-                            <span style={{ fontWeight: 600 }}>风险提示: </span>
-                            <span style={{ color: '#dc2626' }}>
+                          <div style={{ marginTop: 8, padding: '8px', background: '#fef2f2', borderRadius: '4px' }}>
+                            <span style={{ fontWeight: 600, color: '#dc2626' }}>⚠️ 风险提示: </span>
+                            <span style={{ color: '#991b1b' }}>
                               {smartAnalysis.analysis.llm_analysis.risk}
                             </span>
                           </div>
@@ -414,76 +554,34 @@ export default function StockPage() {
                     </div>
                   )}
 
+                  {/* AI因子分解（如果与量化不同） */}
+                  {smartAnalysis.analysis.factors && (
+                    <details style={{ fontSize: '12px', color: '#6b7280' }}>
+                      <summary style={{ cursor: 'pointer', userSelect: 'none' }}>查看AI因子分析</summary>
+                      <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: '13px' }}>
+                        <div>价值: {fmt(smartAnalysis.analysis.factors.value, 2)}</div>
+                        <div>质量: {fmt(smartAnalysis.analysis.factors.quality, 2)}</div>
+                        <div>动量: {fmt(smartAnalysis.analysis.factors.momentum, 2)}</div>
+                        <div>情绪: {fmt(smartAnalysis.analysis.factors.sentiment, 2)}</div>
+                      </div>
+                    </details>
+                  )}
+
                   {/* 错误处理 */}
                   {smartAnalysis.analysis.llm_analysis?.error && (
-                    <div style={{ fontSize: '13px', color: '#dc2626', fontStyle: 'italic' }}>
+                    <div style={{ fontSize: '13px', color: '#dc2626', fontStyle: 'italic', padding: '8px', background: '#fef2f2', borderRadius: '4px' }}>
                       LLM分析暂时不可用: {smartAnalysis.analysis.llm_analysis.error}
                     </div>
                   )}
 
                 </div>
               ) : (
-                <div style={{ textAlign: 'center', color: '#6b7280', fontSize: '14px', padding: '20px 0' }}>
-                  点击"开始AI分析"获取技术指标和投资建议
+                <div style={{ textAlign: 'center', color: '#dc2626', fontSize: '14px', padding: '20px 0' }}>
+                  AI分析返回数据格式异常
                 </div>
               )}
             </div>
           </div>
-
-          {/* 量化评分详情卡片 */}
-          {score?.score && (
-            <div className="card">
-              <div className="card-header">
-                <h3>量化评分详情</h3>
-              </div>
-              <div className="card-body">
-                <div style={{ display: 'grid', gap: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f8f9fa', borderRadius: '6px' }}>
-                    <span>总分</span>
-                    <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                      {score.score.score || '--'}/100
-                    </span>
-                  </div>
-
-                  {/* 评分分解条形图 */}
-                  {score.score && (
-                    <div style={{ fontSize: '13px' }}>
-                      <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>评分构成</h4>
-                      {[
-                        { label: '价值', value: score.score.value, color: '#3b82f6' },
-                        { label: '质量', value: score.score.quality, color: '#10b981' },
-                        { label: '动量', value: score.score.momentum, color: '#f59e0b' },
-                        { label: '情绪', value: score.score.sentiment, color: '#8b5cf6' }
-                      ].map(item => (
-                        <div key={item.label} style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ width: '40px', fontSize: '12px' }}>{item.label}</span>
-                          <div style={{ flex: 1, height: '16px', background: '#e5e7eb', borderRadius: '8px', marginLeft: 8, marginRight: 8, overflow: 'hidden' }}>
-                            <div
-                              style={{
-                                height: '100%',
-                                background: item.color,
-                                width: `${Math.max(0, Math.min(100, (item.value || 0)))}%`,
-                                transition: 'width 0.3s ease'
-                              }}
-                            />
-                          </div>
-                          <span style={{ width: '35px', fontSize: '12px', textAlign: 'right' }}>
-                            {fmt(item.value, 0)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {score.updated_at && (
-                    <div style={{ fontSize: '12px', color: '#6b7280', textAlign: 'right' }}>
-                      更新时间: {new Date(score.updated_at).toLocaleString()}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
 
         </div>
       )}
@@ -492,7 +590,7 @@ export default function StockPage() {
 }
 
 function renderMAPolyline(
-  view: any,  // 修复：改为any类型，避免复杂的泛型推断
+  view: any,
   series: PricePoint[],
   ma: (number | null)[],
   stroke: string

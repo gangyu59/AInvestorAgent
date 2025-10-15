@@ -18,12 +18,12 @@ const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
 
 export default function Dashboard() {
   const [symbols, setSymbols] = useState<string[]>([]);
-  const [decide, setDecide] = useState<any>(null);
   const [scores, setScores] = useState<any[]>([]);
   const [snapshot, setSnapshot] = useState<any>(null);
   const [errorMsg, setError] = useState<string | null>(null);
   const [latestDecision, setLatestDecision] = useState<any>(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [isDeciding, setIsDeciding] = useState(false);
 
   const [loadingState, setLoadingState] = useState({
     visible: false,
@@ -35,10 +35,9 @@ export default function Dashboard() {
     result: null as any,
   });
 
-  // 🔄 完整的数据加载逻辑
+  // ✅ 步骤1: 加载watchlist
   useEffect(() => {
-    async function loadAllData() {
-      // 1. 加载watchlist
+    async function loadWatchlist() {
       try {
         const watchlistData = await getWatchlist();
         if (watchlistData && watchlistData.length > 0) {
@@ -50,8 +49,43 @@ export default function Dashboard() {
         console.error("加载watchlist失败:", e);
         setSymbols(DEFAULT_SYMBOLS);
       }
+    }
+    loadWatchlist();
+  }, []);
 
-      // 2. 加载真实的最新组合快照
+  // ✅ 步骤2: symbols变化时加载真实评分
+  useEffect(() => {
+    if (symbols.length === 0) return;
+
+    async function loadScores() {
+      try {
+        console.log("📊 开始加载评分，股票列表:", symbols);
+        const response = await fetch(`${API_BASE}/api/scores/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbols, mock: false })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("✅ 真实评分数据:", data);
+          setScores(data.items || []);
+        } else {
+          console.warn("⚠️ 评分API失败，使用空数据");
+          setScores([]);
+        }
+      } catch (e) {
+        console.error("❌ 评分加载失败:", e);
+        setScores([]);
+      }
+    }
+
+    loadScores();
+  }, [symbols]); // 依赖symbols，watchlist变化时重新加载
+
+  // ✅ 步骤3: 加载组合快照
+  useEffect(() => {
+    async function loadSnapshot() {
       try {
         const response = await fetch(`${API_BASE}/api/portfolio/snapshots/latest`);
         if (response.ok) {
@@ -67,39 +101,27 @@ export default function Dashboard() {
             snapshot_id: latestSnapshot.snapshot_id
           });
         } else {
-          console.log("⚠️ 暂无组合快照,使用空数据");
+          console.log("⚠️ 暂无组合快照");
           setSnapshot({ weights: {}, metrics: {}, version_tag: "无数据" });
         }
       } catch (e) {
         console.error("加载组合快照失败:", e);
         setSnapshot({ weights: {}, metrics: {}, version_tag: "加载失败" });
       }
-
-      // 3. 其他mock数据(保持不变)
-      setScores([
-        { symbol: "AAPL", score: { score: 82, factors: { value: 0.7, quality: 0.8, momentum: 0.6, growth: 0.9, news: 0.3 } }, as_of: "2025-01-15" },
-        { symbol: "MSFT", score: { score: 78, factors: { value: 0.6, quality: 0.9, momentum: 0.7, growth: 0.8, news: 0.5 } }, as_of: "2025-01-15" },
-        { symbol: "NVDA", score: { score: 85, factors: { value: 0.4, quality: 0.7, momentum: 0.9, growth: 1.0, news: 0.8 } }, as_of: "2025-01-15" },
-        { symbol: "AMZN", score: { score: 75, factors: { value: 0.5, quality: 0.6, momentum: 0.8, growth: 0.7, news: 0.4 } }, as_of: "2025-01-15" },
-        { symbol: "GOOGL", score: { score: 80, factors: { value: 0.8, quality: 0.8, momentum: 0.5, growth: 0.6, news: 0.6 } }, as_of: "2025-01-15" },
-      ]);
-
-      // ❌ 删除所有 setSentiment 相关代码（包括注释）
-      // 不需要在这里加载sentiment，让MarketSentiment组件自己加载
-
-      // 4. 加载最新决策
-      setLatestDecision({
-        date: "2025-10-01",
-        holdings_count: 5,
-        version_tag: "v1.2",
-        performance: { today_change: 1.2, total_return: 8.5, days_since: 2 },
-      });
     }
-
-    loadAllData();
+    loadSnapshot();
   }, []);
 
-  // ==== 修复类型:确保 Object.entries 返回 [string, number][] ====
+  // ✅ 步骤4: 加载最新决策 (mock数据，可后续替换)
+  useEffect(() => {
+    setLatestDecision({
+      date: "2025-10-01",
+      holdings_count: 5,
+      version_tag: "v1.2",
+      performance: { today_change: 1.2, total_return: 8.5, days_since: 2 },
+    });
+  }, []);
+
   const keptTop5: Array<[string, number]> = useMemo(() => {
     const weights: Record<string, number> = (snapshot && snapshot.weights) || {};
     return Object.entries(weights)
@@ -107,7 +129,6 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [snapshot]);
 
-  // 添加刷新函数(供WatchlistPanel使用)
   const refreshWatchlist = async () => {
     try {
       const data = await getWatchlist();
@@ -117,13 +138,8 @@ export default function Dashboard() {
     }
   };
 
-  // ===== 🔧 修复:真正的智能决策函数 =====
-  // 在你的组件顶部，确保有这些状态定义
-  const [isDeciding, setIsDeciding] = useState(false);
-
-  // 完整的 onDecide 函数
   async function onDecide() {
-    if (isDeciding) return;  // 防止重复点击
+    if (isDeciding) return;
 
     console.log("🎯 首页:开始智能决策");
     console.log("📋 使用股票列表:", symbols);
@@ -148,13 +164,11 @@ export default function Dashboard() {
     });
 
     try {
-      // 步骤 1-4: 模拟进度
       for (let i = 0; i < 4; i++) {
         setLoadingState(prev => ({ ...prev, currentStep: i, progress: 20 + i * 15 }));
         await new Promise(r => setTimeout(r, 300));
       }
 
-      // 步骤 5: 调用真实 API
       setLoadingState(prev => ({
         ...prev,
         currentStep: 4,
@@ -177,7 +191,6 @@ export default function Dashboard() {
       });
       console.log("✅ API返回数据:", data);
 
-      // 优先检查API是否直接返回了holdings
       if (data.holdings && Array.isArray(data.holdings) && data.holdings.length > 0) {
         console.log("✅ API直接返回了holdings，无需查快照");
         const realHoldings = data.holdings;
@@ -205,7 +218,6 @@ export default function Dashboard() {
         return;
       }
 
-      // 如果没有直接holdings，才查快照
       const snapshotId = data.snapshot_id;
       if (!snapshotId) {
         throw new Error("API既没有返回holdings，也没有返回快照ID");
@@ -269,11 +281,6 @@ export default function Dashboard() {
     } finally {
       setIsDeciding(false);
     }
-  }
-
-  // 辅助函数：提取快照ID
-  function extractSnapshotId(data: any): string | null {
-    return data.snapshot_id || data.portfolio_id || data.id || null;
   }
 
   async function onRunBacktest() {
@@ -356,10 +363,22 @@ export default function Dashboard() {
 
       <section className="grid-12 gap-16 second-row equalize">
         <div className="col-4 col-md-12 card-slot">
-          <StockScores scores={scores}/>
+          {scores.length === 0 ? (
+            <div className="dashboard-card stock-scores">
+              <div className="dashboard-card-header">
+                <h3 className="dashboard-card-title">股票池评分</h3>
+              </div>
+              <div className="dashboard-card-body" style={{textAlign: 'center', padding: '40px 20px', color: '#6b7280'}}>
+                <div style={{ fontSize: '48px', marginBottom: 12, opacity: 0.3 }}>📊</div>
+                <div style={{ fontSize: '14px', marginBottom: 8 }}>暂无评分数据</div>
+                <div style={{ fontSize: '12px', color: '#9ca3af' }}>请先添加股票到Watchlist</div>
+              </div>
+            </div>
+          ) : (
+            <StockScores scores={scores}/>
+          )}
         </div>
         <div className="col-4 col-md-12 card-slot">
-          {/* ✅ 传入 symbols 参数 */}
           <MarketSentiment symbols={symbols}/>
         </div>
         <div className="col-4 col-md-12 card-slot">
