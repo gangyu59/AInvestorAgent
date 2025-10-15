@@ -1,21 +1,71 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+interface LatestDecision {
+  date: string;
+  holdings_count: number;
+  version_tag: string;
+  performance?: {
+    today_change: number;
+    total_return: number;
+    days_since: number;
+  };
+}
 
 interface DecisionTrackingProps {
-  latestDecision: {
-    date: string;
-    holdings_count: number;
-    version_tag: string;
-    performance?: {
-      today_change: number;
-      total_return: number;
-      days_since: number;
-    };
-  } | null;
   onViewHistory: () => void;
 }
 
-export function DecisionTracking({ latestDecision, onViewHistory }: DecisionTrackingProps) {
+export function DecisionTracking({ onViewHistory }: DecisionTrackingProps) {
+  const [latestDecision, setLatestDecision] = useState<LatestDecision | null>(null);
+  const [loading, setLoading] = useState(true);
   const [showTooltip, setShowTooltip] = useState(false);
+
+  useEffect(() => {
+    loadLatestDecision();
+  }, []);
+
+  const loadLatestDecision = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/portfolio/snapshots/latest');
+      if (response.ok) {
+        const data = await response.json();
+
+        // 计算持有天数
+        const snapshotDate = new Date(data.as_of);
+        const today = new Date();
+        const daysSince = Math.floor((today.getTime() - snapshotDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        setLatestDecision({
+          date: data.as_of,
+          holdings_count: data.holdings?.length || 0,
+          version_tag: data.version_tag || 'v1.0',
+          performance: {
+            today_change: 0, // 需要额外计算，暂用占位
+            total_return: (data.metrics?.ann_return || 0) * 100,
+            days_since: daysSince
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load latest decision:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="dashboard-card">
+        <div className="dashboard-card-header">
+          <h3 className="dashboard-card-title">📊 组合表现</h3>
+        </div>
+        <div className="dashboard-card-body">
+          <div className="decision-empty">加载中...</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!latestDecision) {
     return (
@@ -84,7 +134,7 @@ export function DecisionTracking({ latestDecision, onViewHistory }: DecisionTrac
                   </span>
                 </div>
                 <div className="decision-perf-item">
-                  <span className="decision-perf-label">累计收益</span>
+                  <span className="decision-perf-label">年化收益</span>
                   <span className={`decision-perf-value ${totalReturnClass}`}>
                     {perf.total_return > 0 ? '+' : ''}
                     {perf.total_return.toFixed(2)}%

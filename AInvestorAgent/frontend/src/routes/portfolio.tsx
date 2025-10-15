@@ -56,13 +56,13 @@ export default function PortfolioPage() {
 
   const holdingsCount = resp?.holdings?.length || 0;
 
-  // 🔧 页面加载时检查URL参数
+  // 📌 页面加载时检查URL参数
   useEffect(() => {
     console.log("📍 Portfolio页面挂载");
     loadFromURL();
   }, []);
 
-  // 🔧 监听hash变化
+  // 📌 监听hash变化
   useEffect(() => {
     const handleHashChange = () => {
       console.log("🔄 检测到URL变化");
@@ -73,7 +73,7 @@ export default function PortfolioPage() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // 🔧 从URL加载数据
+  // 📌 从URL加载数据（核心逻辑）
   function loadFromURL() {
     const hash = window.location.hash || "";
     const i = hash.indexOf("?");
@@ -88,14 +88,18 @@ export default function PortfolioPage() {
     const sp = new URLSearchParams(hash.slice(i + 1));
     const symbols = sp.get("symbols") || "";
     const sid = sp.get("sid") || "";
+    const snapshotId = sp.get("snapshot_id") || "";  // 兼容两种参数名
 
-    console.log("📋 URL参数:", { symbols, sid });
+    console.log("📋 URL参数:", { symbols, sid, snapshot_id: snapshotId });
 
-    if (sid) {
+    // 优先使用 snapshot_id，其次 sid
+    const actualSnapshotId = snapshotId || sid;
+
+    if (actualSnapshotId) {
       // 从快照加载
-      console.log("📂 从快照加载:", sid);
+      console.log("📂 从快照加载:", actualSnapshotId);
       setMode('view');
-      loadSnapshot(sid);
+      loadSnapshot(actualSnapshotId);
     } else if (symbols) {
       // 从symbols生成
       console.log("🎯 从股票列表生成组合:", symbols);
@@ -120,7 +124,7 @@ export default function PortfolioPage() {
       console.log("📡 加载快照:", `${SNAPSHOT_URL}/${sid}`);
       const r = await fetch(`${SNAPSHOT_URL}/${sid}`);
 
-      // 🔧 如果404，自动回退到latest
+      // 📌 如果404，自动回退到latest
       if (r.status === 404) {
         console.warn(`⚠️ 快照 ${sid} 不存在，加载最新快照`);
         const r2 = await fetch(`${SNAPSHOT_URL}/latest`);
@@ -128,6 +132,7 @@ export default function PortfolioPage() {
         const data: Resp = await r2.json();
         console.log("✅ 最新快照数据:", data);
         setResp(data);
+        setMode('view');
         return;
       }
 
@@ -135,9 +140,11 @@ export default function PortfolioPage() {
       const data: Resp = await r.json();
       console.log("✅ 快照数据:", data);
       setResp(data);
+      setMode('view');
     } catch (e: any) {
       console.error("❌ 加载快照失败:", e);
       setErr(e?.message || "加载快照失败");
+      setMode('create');
     } finally {
       setLoading(false);
     }
@@ -333,7 +340,9 @@ export default function PortfolioPage() {
         <div className="card">
           <div className="card-body" style={{ textAlign: 'center', padding: 40 }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🤖</div>
-            <div style={{ color: '#888' }}>AI 正在分析市场数据,生成最优组合...</div>
+            <div style={{ color: '#888' }}>
+              {mode === 'view' ? '正在加载快照数据...' : 'AI 正在分析市场数据,生成最优组合...'}
+            </div>
           </div>
         </div>
       )}

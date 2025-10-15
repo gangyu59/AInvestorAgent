@@ -80,9 +80,6 @@ class ProposeResp(BaseModel):
     snapshot_id: str
 
 
-# 在你现有的 backend/api/routers/portfolio.py 中
-# 修改 propose 函数,在返回前添加sector查询
-
 @router.post("/propose", response_model=ProposeResp)
 def propose(req: ProposeReq, db: Session = Depends(get_db)):
     if not req.symbols:
@@ -97,44 +94,43 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
     from uuid import uuid4
     snapshot_id = f"ps_{date.today().strftime('%Y%m%d')}_{uuid4().hex[:6]}"
 
-    # 🔧 新增: 为每个holding补充sector信息
+    # 补充 sector
     from backend.storage.models import Symbol
-
     for holding in holdings:
-        symbol_obj = db.query(Symbol).filter(
-            Symbol.symbol == holding['symbol']
-        ).first()
-
+        symbol_obj = db.query(Symbol).filter(Symbol.symbol == holding['symbol']).first()
         if symbol_obj:
             holding['sector'] = symbol_obj.sector or 'Unknown'
-            # 同时补充name
             if 'name' not in holding:
                 holding['name'] = symbol_obj.name or holding['symbol']
         else:
-            # 如果symbols表没有,设为Unknown
             holding['sector'] = 'Unknown'
             if 'name' not in holding:
                 holding['name'] = holding['symbol']
 
-    # 🔧 重新计算sector集中度(基于补充后的sector)
+    # 重新计算 sector 集中度
     from collections import defaultdict
     sector_weights = defaultdict(float)
     for h in holdings:
         sector = h.get('sector', 'Unknown')
         sector_weights[sector] += h.get('weight', 0)
-
-    # 更新sector_pairs
     sector_pairs = [[s, float(w)] for s, w in sector_weights.items()]
 
+    # ✅ 修改：添加初始 metrics（实际值需要回测后更新）
     payload: Dict[str, Any] = {
         "holdings": [HoldingOut(**h).model_dump() for h in holdings],
         "sector_concentration": sector_pairs,
         "as_of": as_of,
         "version_tag": version_tag,
         "snapshot_id": snapshot_id,
+        "metrics": {  # 👈 新增：初始 metrics
+            "ann_return": 0.0,  # 待回测更新
+            "mdd": 0.0,
+            "sharpe": 0.0,
+            "winrate": 0.0
+        }
     }
 
-    # 尝试落库 portfolio_snapshots
+    # 保存到数据库
     try:
         insp = inspect(engine)
         if insp.has_table("portfolio_snapshots"):
@@ -277,6 +273,107 @@ async def get_latest_snapshot(db: Session = Depends(get_db)):
             "winrate": 0.68
         })
     }
+
+
+@router.get("/snapshots")
+async def get_snapshots_history(
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    """
+    获取历史快照列表
+    用于 DecisionHistoryModal 展示
+    """
+    from backend.storage.models import PortfolioSnapshot
+    import json
+    from sqlalchemy import desc
+
+    # 查询最近 N 个快照
+    snapshots = db.query(PortfolioSnapshot) \
+        .order_by(desc(PortfolioSnapshot.created_at)) \
+        .limit(limit) \
+        .all()
+
+    if not snapshots:
+        return {"snapshots": []}
+
+    result = []
+    for snap in snapshots:
+        try:
+            payload = json.loads(snap.payload) if snap.payload else {}
+        except:
+            holdings = json.loads(snap.holdings_json) if snap.holdings_json else []
+            payload = {"holdings": holdings}
+
+        holdings = payload.get("holdings", [])
+        metrics = payload.get("metrics", {})
+
+        result.append({
+            "id": snap.snapshot_id,
+            "date": snap.as_of or snap.created_at.strftime("%Y-%m-%d"),
+            "holdings_count": len(holdings),
+            "version_tag": snap.version_tag or "v1.0",
+            "performance": {
+                "total_return": metrics.get("ann_return", 0) * 100,  # 转为百分比
+                "max_dd": metrics.get("mdd", metrics.get("max_dd", 0)) * 100
+            }
+        })
+
+    return {"snapshots": result}
+
+
+@router.get("/snapshots/{snapshot_id}")
+async def get_snapshot_by_id(snapshot_id: str, db: Session = Depends(get_db)):
+    """
+    根据 snapshot_id 获取快照详情
+    """
+    from backend.storage.models import PortfolioSnapshot
+    import json
+
+    snapshot = db.query(PortfolioSnapshot).filter(
+        PortfolioSnapshot.snapshot_id == snapshot_id
+    ).first()
+
+    if not snapshot:
+        raise HTTPException(404, f"快照 {snapshot_id} 不存在")
+
+    try:
+        payload = json.loads(snapshot.payload) if snapshot.payload else {}
+    except:
+        holdings = json.loads(snapshot.holdings_json) if snapshot.holdings_json else []
+        payload = {"holdings": holdings}
+
+    holdings = payload.get("holdings", [])
+
+    # 补充 sector
+    from backend.storage.models import Symbol
+    for h in holdings:
+        if 'sector' not in h or h.get('sector') == 'Unknown':
+            symbol_obj = db.query(Symbol).filter(Symbol.symbol == h['symbol']).first()
+            if symbol_obj and symbol_obj.sector:
+                h['sector'] = symbol_obj.sector
+
+    # 重算 sector 集中度
+    from collections import defaultdict
+    sector_weights = defaultdict(float)
+    for h in holdings:
+        sector = h.get('sector', 'Unknown')
+        sector_weights[sector] += h.get('weight', 0)
+
+    return {
+        "snapshot_id": snapshot.snapshot_id,
+        "as_of": snapshot.as_of or snapshot.created_at.isoformat(),
+        "version_tag": snapshot.version_tag or "v1.0",
+        "holdings": holdings,
+        "sector_concentration": [[k, v] for k, v in sector_weights.items()],
+        "metrics": payload.get("metrics", {
+            "ann_return": 0.0,
+            "mdd": 0.0,
+            "sharpe": 0.0,
+            "winrate": 0.0
+        })
+    }
+
 
 def _json_dumps(obj: Any) -> str:
     import json, decimal

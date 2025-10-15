@@ -30,56 +30,17 @@ export function DecisionHistoryModal({ isOpen, onClose, onSelectDecision }: Deci
   const loadHistory = async () => {
     setLoading(true);
     try {
-      // TODO: 替换为实际的后端API
-      const response = await fetch('http://localhost:8000/api/portfolio/snapshots');
+      const response = await fetch('http://localhost:8000/api/portfolio/snapshots?limit=20');
       if (response.ok) {
         const data = await response.json();
         setRecords(data.snapshots || []);
       } else {
-        // Mock 数据作为fallback
-        setRecords([
-          {
-            id: '1',
-            date: '2025-10-01',
-            holdings_count: 5,
-            version_tag: 'v1.2',
-            performance: { total_return: 8.5, max_dd: -5.2 }
-          },
-          {
-            id: '2',
-            date: '2025-09-24',
-            holdings_count: 6,
-            version_tag: 'v1.1',
-            performance: { total_return: 6.3, max_dd: -7.8 }
-          },
-          {
-            id: '3',
-            date: '2025-09-17',
-            holdings_count: 7,
-            version_tag: 'v1.1',
-            performance: { total_return: 12.1, max_dd: -4.5 }
-          },
-          {
-            id: '4',
-            date: '2025-09-10',
-            holdings_count: 5,
-            version_tag: 'v1.0',
-            performance: { total_return: -2.3, max_dd: -9.1 }
-          }
-        ]);
+        console.warn('Failed to load snapshots, status:', response.status);
+        setRecords([]);
       }
     } catch (error) {
       console.error('Failed to load history:', error);
-      // 使用 mock 数据
-      setRecords([
-        {
-          id: '1',
-          date: '2025-10-01',
-          holdings_count: 5,
-          version_tag: 'v1.2',
-          performance: { total_return: 8.5, max_dd: -5.2 }
-        }
-      ]);
+      setRecords([]);
     } finally {
       setLoading(false);
     }
@@ -112,7 +73,8 @@ export function DecisionHistoryModal({ isOpen, onClose, onSelectDecision }: Deci
                   key={record.id}
                   className="history-item"
                   onClick={() => {
-                    onSelectDecision(record.id);
+                    // 跳转到 Portfolio 页面，传递 snapshot_id
+                    window.location.href = `/#/portfolio?snapshot_id=${record.id}`;
                     onClose();
                   }}
                 >
@@ -129,7 +91,7 @@ export function DecisionHistoryModal({ isOpen, onClose, onSelectDecision }: Deci
                     {record.performance && (
                       <>
                         <div className="history-stat">
-                          <span className="history-stat-label">累计收益</span>
+                          <span className="history-stat-label">年化收益</span>
                           <span className={`history-stat-value ${record.performance.total_return >= 0 ? 'up' : 'down'}`}>
                             {record.performance.total_return > 0 ? '+' : ''}
                             {record.performance.total_return.toFixed(1)}%
