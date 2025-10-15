@@ -59,7 +59,7 @@ export default function Dashboard() {
 
     async function loadScores() {
       try {
-        console.log("📊 开始加载评分，股票列表:", symbols);
+        console.log("📊 开始加载评分,股票列表:", symbols);
         const response = await fetch(`${API_BASE}/api/scores/batch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -71,7 +71,7 @@ export default function Dashboard() {
           console.log("✅ 真实评分数据:", data);
           setScores(data.items || []);
         } else {
-          console.warn("⚠️ 评分API失败，使用空数据");
+          console.warn("⚠️ 评分API失败,使用空数据");
           setScores([]);
         }
       } catch (e) {
@@ -81,7 +81,7 @@ export default function Dashboard() {
     }
 
     loadScores();
-  }, [symbols]); // 依赖symbols，watchlist变化时重新加载
+  }, [symbols]);
 
   // ✅ 步骤3: 加载组合快照
   useEffect(() => {
@@ -112,7 +112,7 @@ export default function Dashboard() {
     loadSnapshot();
   }, []);
 
-  // ✅ 步骤4: 加载最新决策 (mock数据，可后续替换)
+  // ✅ 步骤4: 加载最新决策
   useEffect(() => {
     setLatestDecision({
       date: "2025-10-01",
@@ -192,7 +192,7 @@ export default function Dashboard() {
       console.log("✅ API返回数据:", data);
 
       if (data.holdings && Array.isArray(data.holdings) && data.holdings.length > 0) {
-        console.log("✅ API直接返回了holdings，无需查快照");
+        console.log("✅ API直接返回了holdings,无需查快照");
         const realHoldings = data.holdings;
         const realCount = realHoldings.length;
 
@@ -220,7 +220,7 @@ export default function Dashboard() {
 
       const snapshotId = data.snapshot_id;
       if (!snapshotId) {
-        throw new Error("API既没有返回holdings，也没有返回快照ID");
+        throw new Error("API既没有返回holdings,也没有返回快照ID");
       }
 
       console.log("📡 读取快照数据:", snapshotId);
@@ -239,7 +239,7 @@ export default function Dashboard() {
           result: {
             ok: false,
             message: "暂无符合条件的推荐股票",
-            details: "可能原因：\n• 股票评分未达标\n• 约束条件过严\n• 数据暂时不可用",
+            details: "可能原因:\n• 股票评分未达标\n• 约束条件过严\n• 数据暂时不可用",
             snapshot_id: snapshotId
           }
         }));
@@ -295,12 +295,20 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   }
 
-  function onBatchUpdate() {
-    setLoadingState({
-      visible: true, message: "一键更新数据", progress: 40,
-      steps: ["📈 价格", "📰 新闻", "🧮 因子", "⭐ 评分"], currentStep: 1, showResult: false, result: null,
-    });
-    setTimeout(() => setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null }), 1200);
+  // 🔄 数据更新后的回调
+  function handleDataUpdated() {
+    console.log("🔄 数据已更新,刷新评分...");
+    // 重新加载评分
+    if (symbols.length > 0) {
+      fetch(`${API_BASE}/api/scores/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols, mock: false })
+      })
+        .then(r => r.json())
+        .then(data => setScores(data.items || []))
+        .catch(e => console.error("刷新评分失败:", e));
+    }
   }
 
   const handleResultClose = () => {
@@ -339,7 +347,7 @@ export default function Dashboard() {
         onDecide={onDecide}
         onBacktest={onRunBacktest}
         onReport={onGenerateReport}
-        onUpdate={onBatchUpdate}
+        onUpdate={handleDataUpdated}
       />
 
       {errorMsg && (
@@ -357,7 +365,11 @@ export default function Dashboard() {
           <PortfolioOverview snapshot={snapshot} keptTop5={keptTop5} onDecide={onDecide} />
         </div>
         <div className="col-3 col-md-12 card-slot">
-          <QuickActions onUpdate={onBatchUpdate} />
+          {/* ✅ 传递watchlist给QuickActions */}
+          <QuickActions
+            onUpdate={handleDataUpdated}
+            watchlist={symbols}
+          />
         </div>
       </section>
 
