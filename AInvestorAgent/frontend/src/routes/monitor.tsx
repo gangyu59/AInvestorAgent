@@ -25,15 +25,22 @@ export default function MonitorPage() {
     setErr(null);
     try {
       const symbols = q.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+      console.log("🔍 Monitor: 加载情绪数据", symbols);
       const b = await fetchSentimentBrief(symbols, 14);
+      console.log("✅ Monitor: 数据加载成功", b);
       setBrief(b);
     } catch (e: any) {
+      console.error("❌ Monitor: 加载失败", e);
       setErr(e?.message || "获取失败");
     } finally {
       setLoading(false);
     }
   }
-  useEffect(() => { load(); }, []);
+
+  // 页面加载时自动获取数据
+  useEffect(() => {
+    load();
+  }, []);
 
   // === 计算 SVG 路径（带上下 10% 缓冲，避免顶端被“顶住”） ===
   const chart = useMemo(() => {

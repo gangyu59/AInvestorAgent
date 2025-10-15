@@ -20,7 +20,6 @@ export default function Dashboard() {
   const [symbols, setSymbols] = useState<string[]>([]);
   const [decide, setDecide] = useState<any>(null);
   const [scores, setScores] = useState<any[]>([]);
-  const [sentiment, setSentiment] = useState<any>(null);
   const [snapshot, setSnapshot] = useState<any>(null);
   const [errorMsg, setError] = useState<string | null>(null);
   const [latestDecision, setLatestDecision] = useState<any>(null);
@@ -52,14 +51,12 @@ export default function Dashboard() {
         setSymbols(DEFAULT_SYMBOLS);
       }
 
-      // 2. 🔄 加载真实的最新组合快照
+      // 2. 加载真实的最新组合快照
       try {
         const response = await fetch(`${API_BASE}/api/portfolio/snapshots/latest`);
         if (response.ok) {
           const latestSnapshot = await response.json();
           console.log("✅ 加载最新组合成功:", latestSnapshot);
-
-          // 转换为Dashboard需要的格式
           setSnapshot({
             weights: latestSnapshot.holdings?.reduce((acc: any, h: any) => {
               acc[h.symbol] = h.weight;
@@ -71,19 +68,11 @@ export default function Dashboard() {
           });
         } else {
           console.log("⚠️ 暂无组合快照,使用空数据");
-          setSnapshot({
-            weights: {},
-            metrics: {},
-            version_tag: "无数据",
-          });
+          setSnapshot({ weights: {}, metrics: {}, version_tag: "无数据" });
         }
       } catch (e) {
         console.error("加载组合快照失败:", e);
-        setSnapshot({
-          weights: {},
-          metrics: {},
-          version_tag: "加载失败",
-        });
+        setSnapshot({ weights: {}, metrics: {}, version_tag: "加载失败" });
       }
 
       // 3. 其他mock数据(保持不变)
@@ -95,18 +84,10 @@ export default function Dashboard() {
         { symbol: "GOOGL", score: { score: 80, factors: { value: 0.8, quality: 0.8, momentum: 0.5, growth: 0.6, news: 0.6 } }, as_of: "2025-01-15" },
       ]);
 
-      setSentiment({
-        loading: false,
-        latest_news: [
-          { title: "Apple 发布新款 Vision Pro", url: "#", score: 0.7 },
-          { title: "微软 Azure 增长超预期", url: "#", score: 0.5 },
-          { title: "英伟达 GPU 需求持续强劲", url: "#", score: 0.8 },
-          { title: "META AI 新模型上线", url: "#", score: 0.3 },
-          { title: "特斯拉交付数据创新高", url: "#", score: 0.6 },
-          { title: "谷歌云拿下大单", url: "#", score: 0.4 },
-        ],
-      });
+      // ❌ 删除所有 setSentiment 相关代码（包括注释）
+      // 不需要在这里加载sentiment，让MarketSentiment组件自己加载
 
+      // 4. 加载最新决策
       setLatestDecision({
         date: "2025-10-01",
         holdings_count: 5,
@@ -375,17 +356,18 @@ export default function Dashboard() {
 
       <section className="grid-12 gap-16 second-row equalize">
         <div className="col-4 col-md-12 card-slot">
-          <StockScores scores={scores} />
+          <StockScores scores={scores}/>
         </div>
         <div className="col-4 col-md-12 card-slot">
-          <MarketSentiment sentiment={sentiment} />
+          {/* ✅ 传入 symbols 参数 */}
+          <MarketSentiment symbols={symbols}/>
         </div>
         <div className="col-4 col-md-12 card-slot">
-          <DecisionTracking latestDecision={latestDecision} onViewHistory={() => setShowHistoryModal(true)} />
+          <DecisionTracking latestDecision={latestDecision} onViewHistory={() => setShowHistoryModal(true)}/>
         </div>
       </section>
 
-      <DashboardFooter />
+      <DashboardFooter/>
     </div>
   );
 }
