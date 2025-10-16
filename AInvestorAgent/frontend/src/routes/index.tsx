@@ -25,14 +25,13 @@ export default function Dashboard() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [isDeciding, setIsDeciding] = useState(false);
 
+  // 🔧 简化的加载状态 - 只用于显示进度,不显示结果
   const [loadingState, setLoadingState] = useState({
     visible: false,
     message: "",
     progress: 0,
     steps: [] as string[],
     currentStep: 0,
-    showResult: false,
-    result: null as any,
   });
 
   // ✅ 步骤1: 加载watchlist
@@ -138,6 +137,7 @@ export default function Dashboard() {
     }
   };
 
+  // 🎯 核心修改:决策完成后直接跳转,不显示中间结果页
   async function onDecide() {
     if (isDeciding) return;
 
@@ -147,6 +147,7 @@ export default function Dashboard() {
     setIsDeciding(true);
     setError(null);
 
+    // 显示加载进度
     setLoadingState({
       visible: true,
       message: "AI 正在分析市场...",
@@ -159,11 +160,10 @@ export default function Dashboard() {
         "💼 生成组合"
       ],
       currentStep: 0,
-      showResult: false,
-      result: null,
     });
 
     try {
+      // 模拟进度更新
       for (let i = 0; i < 4; i++) {
         setLoadingState(prev => ({ ...prev, currentStep: i, progress: 20 + i * 15 }));
         await new Promise(r => setTimeout(r, 300));
@@ -176,6 +176,7 @@ export default function Dashboard() {
         message: "生成投资组合..."
       }));
 
+      // 调用API
       console.log("📡 调用 orchestrator/decide");
       const data = await aiSmartDecide({
         symbols,
@@ -191,93 +192,45 @@ export default function Dashboard() {
       });
       console.log("✅ API返回数据:", data);
 
-      if (data.holdings && Array.isArray(data.holdings) && data.holdings.length > 0) {
-        console.log("✅ API直接返回了holdings,无需查快照");
-        const realHoldings = data.holdings;
-        const realCount = realHoldings.length;
-
-        setLoadingState(prev => ({
-          ...prev,
-          progress: 100,
-          showResult: true,
-          result: {
-            ok: true,
-            snapshot_id: data.snapshot_id || `temp-${Date.now()}`,
-            holdings_count: realCount,
-            message: `成功生成 ${realCount} 只股票的投资组合`,
-            all_holdings: realHoldings.map((h: any) => ({
-              symbol: h.symbol,
-              weight: h.weight || 0,
-              score: h.score || 0,
-              reasons: h.reasons || [],
-              sector: h.sector || h.industry || 'Technology'
-            }))
-          }
-        }));
-        setIsDeciding(false);
-        return;
-      }
-
+      // 🔧 关键修改:无论API返回什么,都直接跳转到portfolio页
       const snapshotId = data.snapshot_id;
+
       if (!snapshotId) {
-        throw new Error("API既没有返回holdings,也没有返回快照ID");
-      }
-
-      console.log("📡 读取快照数据:", snapshotId);
-      const snapshotRes = await fetch(`${API_BASE}/api/portfolio/snapshot/${snapshotId}`);
-      const snapshotData = await snapshotRes.json();
-      console.log("✅ 快照真实数据:", snapshotData);
-
-      const realHoldings = snapshotData.holdings || [];
-      const realCount = realHoldings.length;
-
-      if (realCount === 0) {
-        setLoadingState(prev => ({
-          ...prev,
-          progress: 100,
-          showResult: true,
-          result: {
-            ok: false,
-            message: "暂无符合条件的推荐股票",
-            details: "可能原因:\n• 股票评分未达标\n• 约束条件过严\n• 数据暂时不可用",
-            snapshot_id: snapshotId
-          }
-        }));
+        console.warn("⚠️ API未返回snapshot_id,使用symbols参数跳转");
+        // 如果没有snapshot_id,用symbols参数跳转,让portfolio页自己去propose
+        window.location.hash = `#/portfolio?symbols=${encodeURIComponent(symbols.join(','))}`;
       } else {
-        setLoadingState(prev => ({
-          ...prev,
-          progress: 100,
-          showResult: true,
-          result: {
-            ok: true,
-            snapshot_id: snapshotId,
-            holdings_count: realCount,
-            message: `成功生成 ${realCount} 只股票的投资组合`,
-            all_holdings: realHoldings.map((h: any) => ({
-              symbol: h.symbol,
-              weight: h.weight,
-              score: h.score || 0,
-              reasons: h.reasons || [],
-              sector: h.sector || h.industry || 'Technology'
-            }))
-          }
-        }));
+        console.log("✅ 使用snapshot_id跳转:", snapshotId);
+        // 有snapshot_id,直接跳转到portfolio页显示结果
+        window.location.hash = `#/portfolio?sid=${snapshotId}`;
       }
+
+      // 关闭加载状态
+      setLoadingState({
+        visible: false,
+        message: "",
+        progress: 0,
+        steps: [],
+        currentStep: 0,
+      });
 
     } catch (e: any) {
       console.error("❌ 智能决策失败:", e);
-      setLoadingState(prev => ({
-        ...prev,
+
+      // 显示错误信息
+      setError(e?.message || "AI决策失败,请稍后重试");
+
+      // 关闭加载状态
+      setLoadingState({
+        visible: false,
+        message: "",
         progress: 0,
-        visible: true,
-        showResult: true,
-        result: {
-          ok: false,
-          message: e?.message || "AI决策失败,请稍后重试",
-          details: e?.response?.data?.detail || e?.stack || "网络或服务器错误"
-        }
-      }));
-      setError(e?.message || "AI决策失败");
+        steps: [],
+        currentStep: 0,
+      });
+
+      // 3秒后清除错误信息
+      setTimeout(() => setError(null), 3000);
     } finally {
       setIsDeciding(false);
     }
@@ -295,9 +248,9 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   }
 
-  // 🔄 数据更新后的回调
+  // 📄 数据更新后的回调
   function handleDataUpdated() {
-    console.log("🔄 数据已更新,刷新评分...");
+    console.log("📄 数据已更新,刷新评分...");
     // 重新加载评分
     if (symbols.length > 0) {
       fetch(`${API_BASE}/api/scores/batch`, {
@@ -311,30 +264,62 @@ export default function Dashboard() {
     }
   }
 
-  const handleResultClose = () => {
-    setLoadingState({ visible: false, message: "", progress: 0, steps: [], currentStep: 0, showResult: false, result: null });
-  };
-
   return (
     <div className="dashboard-content">
-      <LoadingOverlay
-        visible={loadingState.visible}
-        message={loadingState.message}
-        progress={loadingState.progress}
-        steps={loadingState.steps}
-        currentStep={loadingState.currentStep}
-        showResult={loadingState.showResult}
-        result={loadingState.result}
-        onResultClose={handleResultClose}
-        onViewPortfolio={() => {
-          if (loadingState.result?.snapshot_id) {
-            window.location.hash = `#/portfolio?sid=${loadingState.result.snapshot_id}`;
-          } else {
-            window.location.hash = `#/portfolio?symbols=${encodeURIComponent(symbols.join(','))}`;
-          }
-        }}
-        onRunBacktest={onRunBacktest}
-      />
+      {/* 🔧 简化的LoadingOverlay - 只显示进度,不显示结果 */}
+      {loadingState.visible && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
+          <div className="max-w-md w-full mx-4 bg-gray-900 rounded-2xl shadow-2xl border border-gray-800 p-8">
+            {/* 进度条 */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-400">进度</span>
+                <span className="text-sm font-semibold text-blue-400">{loadingState.progress}%</span>
+              </div>
+              <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-600 transition-all duration-300"
+                  style={{ width: `${loadingState.progress}%` }}
+                />
+              </div>
+            </div>
+
+            {/* 当前消息 */}
+            <div className="text-center mb-6">
+              <div className="text-lg font-semibold text-white">{loadingState.message}</div>
+            </div>
+
+            {/* 步骤列表 */}
+            {loadingState.steps.length > 0 && (
+              <div className="space-y-2">
+                {loadingState.steps.map((step, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-3 p-2 rounded-lg transition-all ${
+                      idx === loadingState.currentStep 
+                        ? 'bg-blue-500/20 text-blue-400' 
+                        : idx < loadingState.currentStep 
+                          ? 'text-green-400' 
+                          : 'text-gray-500'
+                    }`}
+                  >
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
+                      idx === loadingState.currentStep 
+                        ? 'bg-blue-500/30' 
+                        : idx < loadingState.currentStep 
+                          ? 'bg-green-500/30' 
+                          : 'bg-gray-700'
+                    }`}>
+                      {idx < loadingState.currentStep ? '✓' : idx + 1}
+                    </div>
+                    <span className="text-sm">{step}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <DecisionHistoryModal
         isOpen={showHistoryModal}
@@ -365,7 +350,6 @@ export default function Dashboard() {
           <PortfolioOverview snapshot={snapshot} keptTop5={keptTop5} onDecide={onDecide} />
         </div>
         <div className="col-3 col-md-12 card-slot">
-          {/* ✅ 传递watchlist给QuickActions */}
           <QuickActions
             onUpdate={handleDataUpdated}
             watchlist={symbols}
