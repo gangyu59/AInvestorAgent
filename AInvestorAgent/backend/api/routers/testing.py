@@ -17,6 +17,19 @@ class TestRunRequest(BaseModel):
     test: Optional[str] = None
 
 
+# ⚠️ 新增：全局禁用Mock验证
+ALLOW_MOCK = False
+
+def _validate_no_mock(data: dict):
+    """确保请求中没有Mock相关参数"""
+    forbidden = ['mock', 'use_mock', 'mocked', 'fake_data']
+    for key in forbidden:
+        if key in data:
+            raise HTTPException(
+                status_code=400,
+                detail=f"❌ Mock模式已全局禁用！禁止使用参数: {key}"
+            )
+
 class TestResult(BaseModel):
     passed: bool
     duration: float
@@ -30,6 +43,9 @@ def run_test(request: TestRunRequest):
     """
     运行测试文件并返回完整输出
     """
+
+    _validate_no_mock(request.dict())
+    
     project_root = Path(__file__).parent.parent.parent.parent
     test_file = project_root / request.file
 

@@ -235,9 +235,17 @@ def _serve(host: str = "0.0.0.0", port: int = 8000, reload: bool = False, auto_o
 
     # ✅ 无论健康检查是否通过，都先尝试打开页面（优先 Agents）
     if auto_open:
-        agents_dst = _reports_dir() / "agents_smoketest.html"  # 新增这行
+        # agents_dst = _reports_dir() / "agents_smoketest.html"  # 新增这行
+        # if agents_dst.exists():  # 改成检查目标是否存在
+        #     url = f"{base}/reports/agents_smoketest.html"
+        # elif monitor is not None:
+        #     url = f"{base}/reports/price_smoketest.html"
+        # else:
+        #     url = f"{base}/docs"
+
+        agents_dst = _reports_dir() / "investment_readiness.html"  # 新增这行
         if agents_dst.exists():  # 改成检查目标是否存在
-            url = f"{base}/reports/agents_smoketest.html"
+            url = f"{base}/reports/investment_readiness.html"
         elif monitor is not None:
             url = f"{base}/reports/price_smoketest.html"
         else:

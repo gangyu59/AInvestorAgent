@@ -44,7 +44,8 @@ AInvestorAgent/
 │   │   │   ├── simulation.py
 │   │   │   ├── symbols.py
 │   │   │   ├── testing.py
-│   │   │   └── validation.py
+│   │   │   ├── validation.py
+│   │   │   └── watchlist.py
 │   │   ├── schemas/
 │   │   │   ├── __init__.py
 │   │   │   ├── analyze.py
@@ -100,6 +101,7 @@ AInvestorAgent/
 │   ├── reports/
 │   │   ├── __init__.py
 │   │   ├── agents_smoketest.html
+│   │   ├── investment_readiness.html
 │   │   ├── markdown.py
 │   │   ├── news_smoketest.html
 │   │   ├── pdf.py
@@ -209,6 +211,8 @@ AInvestorAgent/
 │   │   │   │   ├── SearchBox.tsx
 │   │   │   │   └── Tag.tsx
 │   │   │   ├── dashboard/
+│   │   │   │   ├── DecisionHistoryModal.tsx
+│   │   │   │   ├── DecisionTracking.tsx
 │   │   │   │   ├── Footer.tsx
 │   │   │   │   ├── Header.tsx
 │   │   │   │   ├── MarketSentiment.tsx
@@ -251,6 +255,7 @@ AInvestorAgent/
 │   │   │   ├── components.css
 │   │   │   ├── home.css
 │   │   │   ├── main.css
+│   │   │   ├── portfolio-card.css
 │   │   │   ├── responsive.css
 │   │   │   ├── tailwind.css
 │   │   │   ├── themes.css
@@ -280,21 +285,34 @@ AInvestorAgent/
 │   ├── last_report.html
 │   ├── latest.json
 │   ├── pytest.json
+│   ├── sentiment_test.json
 │   ├── test_report.html
 │   └── unit.html
 ├── scripts/
+│   ├── check_data.py
+│   ├── check_schema.py
 │   ├── diagnose_factors.py
 │   ├── fetch_fundamentals.py
 │   ├── fetch_news.py
 │   ├── fetch_prices.py
+│   ├── fix_api_response.py
+│   ├── init_watchlist.py
+│   ├── populate_symbols.py
 │   ├── propose_portfolio.py
 │   ├── rebuild_factors.py
 │   ├── recompute_scores.py
 │   ├── run_backtest.py
+│   ├── test_backtest.py
 │   ├── test_env.py
+│   ├── test_propose.py
+│   ├── test_scoring.py
+│   ├── test_sentiment.py
 │   ├── test_smart_decision.py
 │   ├── test_technical_analysis.py
-│   └── validate_enhancements.py
+│   ├── update_snapshot_metrics.py
+│   ├── validate_data.py
+│   ├── validate_enhancements.py
+│   └── verify_no_mock_final.py
 ├── tests/
 │   ├── agents/
 │   │   ├── __init__.py
@@ -373,7 +391,9 @@ AInvestorAgent/
 │   │   └── test_sentiment_accuracy.py
 │   ├── __init__.py
 │   ├── conftest.py
+│   ├── OPERATIONS_MANUAL.md
 │   ├── paper_trading_simulator.py
+│   ├── QUICK_TEST_MANUAL.md
 │   ├── README.md
 │   ├── run_visual_tests.sh
 │   ├── test_cases_detailed.py
@@ -393,7 +413,17 @@ AInvestorAgent/
 │   ├── update_snapshot.py
 │   └── validate_config.py
 ├── __init__.py
+├── decide_llm.json
+├── fetch_historical_data.py
+├── fix_backtest_data.py
+├── list_routes.py
+├── propose.json
 ├── requirements.txt
 ├── run.py
-└── unit.html
+├── test_backtest_diagnostic.py
+├── test_backtest_result.json
+├── test_momentum.py
+├── test_portfolio_result.json
+├── unit.html
+└── validate_portfolios.py
 ```
