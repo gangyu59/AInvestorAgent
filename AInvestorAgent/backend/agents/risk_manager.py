@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, Any, List
 from collections import defaultdict
 
+
 class RiskManager:
     name = "risk_manager"
 
@@ -12,7 +13,7 @@ class RiskManager:
         elif isinstance(ctx, dict):
             self._ctx = ctx
         else:
-            # 兼容 AgentContext 或其他对象，直接存引用
+            # 兼容 AgentContext 或其他对象,直接存引用
             self._ctx = {"ctx": ctx}
 
     def _norm_params(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -20,21 +21,23 @@ class RiskManager:
             "max_stock": float(ctx.get("risk.max_stock", 0.30)),
             "max_sector": float(ctx.get("risk.max_sector", 0.50)),
             "count_range": tuple(ctx.get("risk.count_range", (5, 15))),
+            "min_score": float(ctx.get("min_score", 60)),  # 🔧 新增最低评分阈值
         }
 
-    def act(self, *, weights: List[Dict[str, Any]], max_weight: float = 0.30, max_sector: float = 0.50) -> Dict[str, Any]:
+    def act(self, *, weights: List[Dict[str, Any]], max_weight: float = 0.30, max_sector: float = 0.50) -> Dict[
+        str, Any]:
         """
-        便捷风控：接受权重列表与阈值，复用 run(ctx) 的完整风控逻辑。
+        便捷风控:接受权重列表与阈值,复用 run(ctx) 的完整风控逻辑。
         - weights: [{"symbol": "...", "weight": 0.5, ("sector": "...")}, ...]
-        - max_weight: 单票上限（对应 risk.max_stock）
-        - max_sector: 行业上限（对应 risk.max_sector）
+        - max_weight: 单票上限(对应 risk.max_stock)
+        - max_sector: 行业上限(对应 risk.max_sector)
         返回: {"ok": True/False, "weights": {symbol: weight, ...}}
         """
         ctx: Dict[str, Any] = {
             "weights": weights,
             "risk.max_stock": float(max_weight),
             "risk.max_sector": float(max_sector),
-            # 对 act 场景，数量上限给到当前长度，避免被无端裁剪
+            # 对 act 场景,数量上限给到当前长度,避免被无端裁剪
             "risk.count_range": (1, max(1, len(weights))),
         }
         out = self.run(ctx)
@@ -50,21 +53,40 @@ class RiskManager:
     def run(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
         risk = self._norm_params(ctx)
 
-        # --- 1) 组装候选 + 映射，确保能拿到 sector ---
+        # --- 0) 🔧 新增: 评分过滤(在权重调整之前) ---
+        min_score = risk.get("min_score", 60)
+
+        # --- 1) 组装候选 + 映射,确保能拿到 sector 和 score ---
         candidates: List[Dict[str, Any]] = ctx.get("candidates") or []
         sym2sector: Dict[str, str] = {}
-        for x in candidates:
-            sec = x.get("sector")
-            if sec:
-                sym2sector[str(x.get("symbol"))] = sec
+        sym2score: Dict[str, float] = {}  # 🔧 新增: 评分映射
 
-        # --- 2) 准备初始权重（优先用 candidates；必要时用 proposal.items 并回填 sector） ---
+        for x in candidates:
+            sym = str(x.get("symbol"))
+            sec = x.get("sector")
+            score = x.get("score", 0)  # 🔧 提取评分
+
+            if sec:
+                sym2sector[sym] = sec
+            sym2score[sym] = score
+
+        # --- 2) 准备初始权重(优先用 candidates;必要时用 proposal.items 并回填 sector) ---
         weights = ctx.get("weights")
         if not weights:
             proposal = ctx.get("proposal")
 
             if candidates:
-                items = candidates[: risk["count_range"][1]]
+                # 🔧 修改: 先按评分排序,再裁剪数量
+                sorted_candidates = sorted(
+                    candidates,
+                    key=lambda x: x.get("score", 0),
+                    reverse=True
+                )
+                # 只保留评分 >= min_score 的候选
+                filtered = [c for c in sorted_candidates if c.get("score", 0) >= min_score]
+                # 再按数量范围裁剪
+                max_positions = risk["count_range"][1]
+                items = filtered[:max_positions]
             else:
                 # 兼容 proposal: dict(list) 两种形态
                 if isinstance(proposal, dict):
@@ -84,13 +106,23 @@ class RiskManager:
                 sec = it.get("sector") or sym2sector.get(sym) or "Unknown"
                 weights.append({"symbol": sym, "weight": w0, "sector": sec})
         else:
-            # 外部传入的 weights 若没带 sector，则用 candidates 映射补齐
+            # 外部传入的 weights 若没带 sector,则用 candidates 映射补齐
             fixed = []
             for w in weights:
                 sym = w["symbol"]
+                score = sym2score.get(sym, 0)
+
+                # 🔧 过滤低分股票
+                if score < min_score:
+                    continue
+
                 sec = w.get("sector") or sym2sector.get(sym) or "Unknown"
                 fixed.append({"symbol": sym, "weight": float(w["weight"]), "sector": sec})
             weights = fixed
+
+        # 🔧 如果过滤后没有股票了,返回失败
+        if not weights:
+            return {"ok": False, "data": {"error": f"没有评分 >= {min_score} 的股票"}}
 
         # --- 3) 单票上限裁剪 ---
         per_capped = []
@@ -98,7 +130,7 @@ class RiskManager:
             v = min(float(w["weight"]), risk["max_stock"])
             per_capped.append({"symbol": w["symbol"], "weight": v, "sector": w["sector"] or "Unknown"})
 
-        # --- 4) 行业集中度约束（保证任何行业 ≤ max_sector） ---
+        # --- 4) 行业集中度约束(保证任何行业 ≤ max_sector) ---
         # 4.1 统计行业原始权重
         sector_totals: Dict[str, float] = defaultdict(float)
         sector_to_stocks: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -106,7 +138,7 @@ class RiskManager:
             sector_totals[x["sector"]] += x["weight"]
             sector_to_stocks[x["sector"]].append(x)
 
-        # 4.2 先把超限行业直接 Cap 到上限，未超限行业保留原总权重
+        # 4.2 先把超限行业直接 Cap 到上限,未超限行业保留原总权重
         max_sec = risk["max_sector"]
         capped_sector_total: Dict[str, float] = {}
         removed = 0.0
@@ -125,7 +157,6 @@ class RiskManager:
                 if tot <= max_sec:
                     share = tot / keepers_total
                     capped_sector_total[sec] += removed * share
-        # （如果所有行业都超限或只有一个行业，removed 会为 0 或 keepers_total=0，直接跳过即可）
 
         # 4.4 按"目标行业总权重"把行业内的股票等比缩放
         adjusted: List[Dict[str, Any]] = []
@@ -136,8 +167,7 @@ class RiskManager:
                 share = s["weight"] / base
                 adjusted.append({"symbol": s["symbol"], "sector": sec, "weight": target_sec_sum * share})
 
-        # --- 5) 只对"未被行业 Cap 的部分"做全局归一化（不会把被 Cap 的行业又抬回去） ---
-        # 实际上 4.4 已经把每个行业精确分配到目标和；这里仅防数值误差统一归一
+        # --- 5) 只对"未被行业 Cap 的部分"做全局归一化(不会把被 Cap 的行业再抬回去) ---
         total = sum(x["weight"] for x in adjusted) or 1.0
         kept = [{"symbol": x["symbol"], "sector": x["sector"], "weight": x["weight"] / total} for x in adjusted]
 
@@ -156,11 +186,11 @@ class RiskManager:
                 "weights": kept,
                 "concentration": concentration,
                 "actions": actions,
+                "filtered_count": len(weights),  # 🔧 记录过滤后保留的数量
             },
         }
 
-
-    # === 高级风险控制功能 (追加到 RiskManager 类) ===
+    # === 高级风险控制功能 ===
 
     def calculate_portfolio_correlation(self, weights: List[Dict[str, Any]],
                                         db_session=None) -> Dict[str, float]:
@@ -213,7 +243,7 @@ class RiskManager:
                 # 计算风险指标
                 corr_array = np.array(corr_matrix)
 
-                # 平均相关性（排除对角线）
+                # 平均相关性(排除对角线)
                 mask = ~np.eye(len(symbols), dtype=bool)
                 avg_correlation = float(np.mean(corr_array[mask]))
 
@@ -242,7 +272,7 @@ class RiskManager:
     def enhanced_risk_check(self, weights: List[Dict[str, Any]],
                             market_condition: str = "normal") -> Dict[str, Any]:
         """
-        增强风险检查：根据市场环境调整风险参数
+        增强风险检查:根据市场环境调整风险参数
 
         市场环境:
         - "bull": 牛市 - 适度放松约束
@@ -287,16 +317,16 @@ class RiskManager:
         try:
             for scenario in scenarios:
                 if scenario == "market_crash":
-                    # 模拟市场暴跌：所有资产下跌但相关性上升
+                    # 模拟市场暴跌:所有资产下跌但相关性上升
                     scenario_result = {
                         "max_single_loss": -0.30,  # 单一资产最大损失30%
-                        "portfolio_var_shock": -0.25,  # 组合VaR恶化
+                        "portfolio_var_shock": -0.25,  # 组合VaR冲击
                         "correlation_increase": 0.8,  # 相关性上升到0.8
                         "risk_level": "high"
                     }
 
                 elif scenario == "sector_rotation":
-                    # 模拟行业轮动：某些行业表现差异巨大
+                    # 模拟行业轮动:某些行业表现差异巨大
                     sector_weights = defaultdict(float)
                     for w in weights:
                         sector_weights[w.get('sector', 'Unknown')] += w.get('weight', 0)
@@ -328,6 +358,7 @@ class RiskManager:
             print(f"压力测试失败: {e}")
 
         return stress_results
+
 
 # 确保可以被正确导入
 __all__ = ['RiskManager']

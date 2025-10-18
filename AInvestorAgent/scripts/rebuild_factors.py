@@ -11,16 +11,11 @@ if str(ROOT) not in sys.path:
 
 from backend.storage.db import SessionLocal
 from backend.storage import dao
-from backend.scoring.scorer import compute_factors
-
-try:
-    from backend.scoring.scorer import upsert_factors  # 可选
-except Exception:
-    upsert_factors = None  # type: ignore
+from backend.scoring.scorer import compute_factors, upsert_scores  # ← 改这里！
 
 def _default_symbols(session) -> List[str]:
     try:
-        syms = dao.get_popular_symbols(session)  # 若无此函数会走 except
+        syms = dao.get_popular_symbols(session)
         if syms:
             return syms
     except Exception:
@@ -29,7 +24,7 @@ def _default_symbols(session) -> List[str]:
 
 def main(argv=None):
     import argparse
-    ap = argparse.ArgumentParser(description="重算并（可选）入库因子")
+    ap = argparse.ArgumentParser(description="重算并入库因子")
     ap.add_argument("--symbols", type=str, default="AAPL,MSFT,NVDA,AMZN,GOOGL",
                     help='逗号分隔；传 "all" 则自动读取常用清单')
     ap.add_argument("--asof", type=str, default=date.today().isoformat())
@@ -45,13 +40,12 @@ def main(argv=None):
         print(f"🔧 重建因子 as_of={asof} symbols={symbols}")
 
         try:
-            rows = compute_factors(s, symbols, asof)  # ← 传入整个列表
+            rows = compute_factors(s, symbols, asof)
             if not rows:
                 print(f"  ⚠️ 无可计算数据")
             else:
-                # 批量入库
-                if upsert_factors:
-                    upsert_factors(s, asof, rows)
+                # 直接用你已有的 upsert_scores！
+                upsert_scores(s, asof, rows, version_tag="v0.1")  # ← 改这里！
 
                 # 显示结果
                 for r in rows:
@@ -61,7 +55,9 @@ def main(argv=None):
                           f"f_momentum={r.f_momentum:.3f} "
                           f"f_sentiment={r.f_sentiment:.3f}")
         except Exception as e:
+            import traceback
             print(f"  ❌ 计算失败: {e}")
+            traceback.print_exc()
 
         print(f"完成")
 

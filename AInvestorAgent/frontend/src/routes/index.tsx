@@ -181,12 +181,12 @@ export default function Dashboard() {
       const data = await aiSmartDecide({
         symbols,
         topk: 15,
-        min_score: 60,
+        min_score: 40,
         use_llm: true,
         params: {
           "risk.max_stock": 0.30,
           "risk.max_sector": 0.50,
-          "risk.min_positions": 6,
+          "risk.min_positions": 4,
           "risk.max_positions": 10,
         },
       });

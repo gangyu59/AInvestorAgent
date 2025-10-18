@@ -88,19 +88,65 @@ def _cap_sector(w: Dict[str, float], sectors: Dict[str, str], cap: float) -> Dic
         for k in w: w[k] /= tot
     return w
 
-def propose_portfolio(db: Session, symbols: Iterable[str], constraints: Constraints | None = None
-                     ) -> Tuple[List[Holding], List[Tuple[str,float]]]:
+
+def propose_portfolio(
+        db: Session,
+        symbols: Iterable[str],
+        constraints: Constraints | None = None,
+        scores_dict: Dict[str, float] | None = None
+) -> Tuple[List[Holding], List[Tuple[str, float]]]:
     c = constraints or default_constraints()
-    rows = [r for r in _latest_scores_for(db, symbols) if (r.score or 0) > 0]
+
+    if scores_dict:
+        rows = [
+            type('ScoreRow', (), {
+                'symbol': s,
+                'score': scores_dict[s],
+                'f_value': 0, 'f_quality': 0, 'f_momentum': 0, 'f_sentiment': 0
+            })()
+            for s in symbols if s in scores_dict and scores_dict[s] > 0
+        ]
+    else:
+        rows = [r for r in _latest_scores_for(db, symbols) if (r.score or 0) > 0]
+
+    # 🔍 调试输出1: 查看初始分数
+    print("=" * 50)
+    print("[allocator] 初始 scores:")
+    for r in rows:
+        print(f"  {r.symbol}: {r.score}")
+
     rows = _truncate_positions(rows, c)
+
+    # 🔍 调试输出2: 截断后的股票
+    print(f"[allocator] 截断后保留 {len(rows)} 只:")
+    for r in rows:
+        print(f"  {r.symbol}: {r.score}")
+
     if not rows:
         return [], []
 
     w = _weights_from_scores(rows)
+
+    # 🔍 调试输出3: 初始权重(按分数比例)
+    print("[allocator] 初始权重(按分数):")
+    for sym, wt in w.items():
+        print(f"  {sym}: {wt:.4f}")
+
     w = _cap_single(w, c.max_single)
+
+    # 🔍 调试输出4: 单票上限后
+    print(f"[allocator] 单票上限({c.max_single})后:")
+    for sym, wt in w.items():
+        print(f"  {sym}: {wt:.4f}")
 
     sectors = load_symbol_sectors(db, [r.symbol for r in rows])
     w = _cap_sector(w, sectors, c.max_sector)
+
+    # 🔍 调试输出5: 行业上限后(最终)
+    print(f"[allocator] 行业上限({c.max_sector})后(最终):")
+    for sym, wt in w.items():
+        print(f"  {sym}: {wt:.4f}")
+    print("=" * 50)
 
     holdings: List[Holding] = []
     for r in rows:

@@ -334,15 +334,17 @@ def propose(req: ProposeReq):
 def decide(req: DecideReq):
     """
     /orchestrator/decide
-    - 输入：symbols 列表 + 可选的 topk / min_score / params（含 risk.* 约束）
-    - 流程：构造 candidates(含确定性 score 与 sector 兜底) -> 调组合管线 -> 统一补 sector -> 兜底满足 min/max 持仓 -> 归一化 -> 返回 holdings
+    - 输入:symbols列表 + 可选的 topk / min_score / params(含 risk.* 约束)
+    - 核心流程:构造 candidates(含确定性 score 与 sector 兜底)
+               -> **直接调用 propose_portfolio** (按分数比例分配权重并应用风控)
+               -> 统一补 sector -> 返回 holdings
     """
     try:
         syms = [(s or "").upper() for s in (req.symbols or []) if s]
         if not syms:
             raise HTTPException(status_code=400, detail="symbols required")
 
-        # 1) 为每个 symbol 生成一个稳定的 score（用于排序/截断），并填个 sector 兜底
+        # 1) 为每个 symbol 生成一个稳定的 score,并填个 sector 兜底
         cands = []
         for s in syms:
             f = _deterministic_factors(s)
@@ -351,12 +353,12 @@ def decide(req: DecideReq):
                 continue
             cands.append({
                 "symbol": s,
-                "sector": lookup_sector(s),  # 先给一个兜底行业，后面还会统一 attach
+                "sector": lookup_sector(s),
                 "score": score,
                 "factors": f,
             })
 
-        # 若过滤后为空：放宽（忽略 min_score），按 topk 选
+        # 若过滤后为空:放宽(忽略 min_score),按 topk 选
         if not cands:
             raw = []
             seen = set()
@@ -368,7 +370,7 @@ def decide(req: DecideReq):
                 score = round(sum(f.values()) / 4.0 * 100.0, 2)
                 raw.append({
                     "symbol": s,
-                    "sector": lookup_sector(s),  # 给兜底行业
+                    "sector": lookup_sector(s),
                     "score": score,
                     "factors": f,
                 })
@@ -380,47 +382,144 @@ def decide(req: DecideReq):
         if not cands:
             raise HTTPException(status_code=400, detail="no candidates after filtering")
 
-        # 2) 走组合管线
+        # ✅ 2) 直接调用 propose_portfolio (核心决策引擎!)
+        from backend.portfolio.allocator import propose_portfolio
+        from backend.portfolio.constraints import Constraints
+        from backend.storage.db import SessionLocal
+
+        # 从 params 构建约束
         params = req.params or {}
-        result = run_portfolio_pipeline(candidates=cands, params=params)
+        constraints = Constraints(
+            max_single=float(params.get("risk.max_stock", 0.30)),
+            max_sector=float(params.get("risk.max_sector", 0.50)),
+            min_positions=int(params.get("risk.count_range", [6, 10])[0]),
+            max_positions=int(params.get("risk.count_range", [6, 10])[1]),
+        )
 
-        # 3) 取出 holdings（兼容两种返回风格：顶层 holdings 或 context.kept）
-        holdings = []
-        if isinstance(result, dict):
-            if isinstance(result.get("holdings"), list):
-                holdings = result["holdings"]
-            else:
-                ctx = result.get("context") or {}
-                if isinstance(ctx, dict) and isinstance(ctx.get("kept"), list):
-                    holdings = ctx["kept"]
+        # ⚠️ 重要:需要先把 cands 的 score 写入数据库,propose_portfolio 才能读取!
+        # 临时方案:直接传递 scores 给 propose_portfolio
+        # 或者:改造 propose_portfolio 接受 score dict 而不是从数据库读取
 
-        # 兜底等权
-        if not holdings:
-            eq = 1.0 / max(1, len(cands))
-            holdings = [{"symbol": x["symbol"], "weight": eq} for x in cands]
+        with SessionLocal() as db:
+            # 选项A:先把 scores 写入 scores_daily 表(临时)
+            from backend.storage.models import ScoreDaily
+            from datetime import date
 
-        # 4) 统一补齐 sector（并打印 Unknown 以便你扩缓存）
+            for c in cands:
+                score_row = ScoreDaily(
+                    symbol=c["symbol"],
+                    as_of=date.today(),
+                    score=c["score"],
+                    f_value=c["factors"].get("value", 0.0),
+                    f_quality=c["factors"].get("quality", 0.0),
+                    f_momentum=c["factors"].get("momentum", 0.0),
+                    f_sentiment=c["factors"].get("sentiment", 0.0),
+                    version_tag="decide_v1"
+                )
+                db.merge(score_row)  # merge 避免冲突
+            db.commit()
+
+            # ✅ 调用核心决策引擎
+            holdings_list, sector_pairs = propose_portfolio(
+                db,
+                [c["symbol"] for c in cands],
+                constraints
+            )
+
+        # 转换为标准格式
+        holdings = [
+            {
+                "symbol": h["symbol"],
+                "weight": h["weight"],
+                "score": h["score"],
+                "sector": h["sector"],
+                "reasons": h.get("reasons", [])
+            }
+            for h in holdings_list
+        ]
+
+        # 3) 统一补齐 sector(并打印 Unknown 以便你扩缓存)
         holdings = _attach_sector(holdings)
         _debug_unknowns(holdings)
 
-        # 5) 不足 min_positions 时，从 universe 里按 score 补齐；再做 max_positions 裁剪 & 归一化
-        p = params
-        min_pos = int((p.get("risk.min_positions") or 0) if isinstance(p, dict) else 0)
-        max_pos = int((p.get("risk.max_positions") or 0) if isinstance(p, dict) else 0)
+        # 4) 🔧 立即调用回测,获取真实metrics
+        real_metrics = {"ann_return": 0.0, "mdd": 0.0, "sharpe": 0.0, "winrate": 0.0}
+        snapshot_id = f"decide_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        # 从 result 里拿 analyses 作为补齐的排序参考（没有也没关系）
-        analyses = result.get("analyses") if isinstance(result, dict) else None
-        holdings = _pad_min_positions(holdings, syms, analyses, min_pos)
-        holdings = _enforce_position_bounds(holdings, min_pos=min_pos, max_pos=max_pos)
+        try:
+            # 调用回测API
+            backtest_req = {
+                "holdings": [{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
+                "window_days": 252,
+                "trading_cost": 0.001,
+                "rebalance": "weekly",
+                "benchmark_symbol": "SPY"
+            }
+
+            req_data = json.dumps(backtest_req).encode('utf-8')
+            headers = {'Content-Type': 'application/json'}
+            backtest_url = "http://127.0.0.1:8000/api/backtest/run"
+            request = urllib.request.Request(backtest_url, data=req_data, headers=headers, method='POST')
+
+            with urllib.request.urlopen(request, timeout=30) as response:
+                backtest_result = json.loads(response.read().decode('utf-8'))
+
+                if backtest_result.get("success") and backtest_result.get("metrics"):
+                    m = backtest_result["metrics"]
+                    real_metrics = {
+                        "ann_return": m.get("ann_return", 0.0),
+                        "mdd": m.get("mdd", m.get("max_dd", 0.0)),
+                        "sharpe": m.get("sharpe", 0.0),
+                        "winrate": m.get("win_rate", m.get("winrate", 0.0))
+                    }
+                    print(f"✅ [decide] 回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
+        except Exception as e:
+            print(f"⚠️ [decide] 回测失败: {e}")
+
+        # 5) 保存到数据库
+        try:
+            from backend.storage.models import PortfolioSnapshot
+            from sqlalchemy import text, inspect
+            from backend.storage.db import engine
+
+            payload = {
+                "holdings": holdings,
+                "as_of": datetime.date.today().isoformat(),
+                "version_tag": "decide_v1",
+                "snapshot_id": snapshot_id,
+                "metrics": real_metrics
+            }
+
+            insp = inspect(engine)
+            if insp.has_table("portfolio_snapshots"):
+                with engine.begin() as conn:
+                    conn.execute(
+                        text("""
+                            INSERT INTO portfolio_snapshots
+                            (snapshot_id, as_of, version_tag, payload, created_at)
+                            VALUES (:snapshot_id, :as_of, :version_tag, :payload, :created_at)
+                        """),
+                        dict(
+                            snapshot_id=snapshot_id,
+                            as_of=payload["as_of"],
+                            version_tag=payload["version_tag"],
+                            payload=json.dumps(payload),
+                            created_at=datetime.datetime.utcnow().isoformat(),
+                        ),
+                    )
+        except Exception as e:
+            print(f"⚠️ [decide] 保存快照失败: {e}")
 
         # 6) 组装响应
         resp = {
             "ok": True,
             "method": ("llm_enhanced" if req.use_llm else "rules"),
             "holdings": holdings,
-            "reasoning": result.get("reasoning") if isinstance(result, dict) else None,
-            "version_tag": result.get("version_tag") if isinstance(result, dict) else None,
-            "snapshot_id": None,  # 如需保存快照，可在此处接入你的保存函数
+            "sector_concentration": [[s, w] for s, w in sector_pairs],
+            "reasoning": None,
+            "version_tag": "decide_v1",
+            "snapshot_id": snapshot_id,
+            "metrics": real_metrics,
         }
         return JSONResponse(content=jsonable_encoder(resp))
 
@@ -428,7 +527,6 @@ def decide(req: DecideReq):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.post("/propose_backtest")
 def propose_backtest(req: ProposeBacktestReq):

@@ -89,39 +89,80 @@ export function QuickActions({
     try {
       console.log("🚀 开始批量更新:", watchlist);
 
-      const response = await fetch(`${API_BASE}/api/batch/update`, {
+      const progressInterval = setInterval(() => {
+        setUpdateProgress(prev => {
+          if (!prev) return null;
+          const estimatedCurrent = Math.min(
+            Math.floor((Date.now() - startTime) / 15000),
+            prev.total - 1
+          );
+          return {
+            ...prev,
+            current: estimatedCurrent,
+            currentSymbol: watchlist[estimatedCurrent] || prev.currentSymbol
+          };
+        });
+      }, 1000);
+
+      const startTime = Date.now();
+
+      // 步骤1: 更新价格数据
+      console.log("📊 步骤1: 更新价格数据...");
+      const priceResponse = await fetch(`${API_BASE}/api/batch/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           symbols: watchlist,
           force_full: forceFull,
           update_prices: true,
-          update_news: false, // TODO: 后续支持新闻更新
+          update_news: false,
           update_fundamentals: false
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      clearInterval(progressInterval);
+
+      if (!priceResponse.ok) {
+        throw new Error(`价格更新失败: HTTP ${priceResponse.status}`);
       }
 
-      const result: UpdateResponse = await response.json();
+      const priceResult: UpdateResponse = await priceResponse.json();
+      console.log("✅ 价格更新完成:", priceResult);
 
-      console.log("✅ 更新完成:", result);
+      // 步骤2: 重建因子
+      console.log("🧮 步骤2: 重建因子...");
+      const factorResponse = await fetch(`${API_BASE}/api/factors/rebuild`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbols: watchlist,
+          as_of: new Date().toISOString().split('T')[0] // YYYY-MM-DD
+        })
+      });
 
-      // 显示结果
-      setUpdateProgress(prev => prev ? {
-        ...prev,
-        current: result.total,
-        results: result.results
-      } : null);
+      let factorMessage = "";
+      if (factorResponse.ok) {
+        const factorResult = await factorResponse.json();
+        console.log("✅ 因子重建完成:", factorResult);
+        factorMessage = `✅ 因子计算: ${factorResult.success || watchlist.length}个`;
+      } else {
+        console.warn("⚠️ 因子重建失败");
+        factorMessage = "⚠️ 因子计算失败";
+      }
 
-      // 3秒后关闭
-      setTimeout(() => {
-        setShowUpdateModal(false);
-        setUpdateProgress(null);
-        onUpdate(); // 触发父组件刷新
-      }, 3000);
+      // 显示真实结果（不自动关闭）
+      setUpdateProgress({
+        current: priceResult.total,
+        total: priceResult.total,
+        currentSymbol: factorMessage, // ← 把因子结果显示在这里
+        results: priceResult.results
+      });
+
+      alert(`✅ 更新完成!\n\n价格数据: ${priceResult.success}/${priceResult.total}\n${factorMessage}`);
+
+      onUpdate(); // 触发父组件刷新
+      setShowUpdateModal(false); // 关闭模态框
+      setUpdateProgress(null);
 
     } catch (error: any) {
       console.error("❌ 更新失败:", error);

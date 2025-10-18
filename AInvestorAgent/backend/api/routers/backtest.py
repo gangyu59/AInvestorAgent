@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Tuple
 import hashlib, time, math, json, urllib.request
+from backend.backtest.metrics import compute_metrics, compute_drawdown
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
@@ -37,47 +38,6 @@ def parse_window_days(win: Optional[str], fallback: int = 252) -> int:
         return max(int(float(w)), 5)
     except Exception:
         return fallback
-
-def compute_drawdown(nav: List[float]) -> List[float]:
-    dd, peak = [], -float("inf")
-    for v in nav or []:
-        v = float(v or 0.0)
-        peak = max(peak, v)
-        dd.append((v/peak - 1.0) if peak > 0 else 0.0)
-    return dd
-
-def compute_metrics(nav: List[float]) -> Dict[str, float]:
-    if not nav: return {"ann_return": 0.0, "sharpe": 0.0, "max_dd": 0.0, "win_rate": 0.0}
-    rets = []
-    for i in range(1, len(nav)):
-        p0, p1 = nav[i-1], nav[i]
-        rets.append(p1/p0 - 1 if p0 > 0 else 0.0)
-    n = len(rets) or 1
-    total = nav[-1] or 1.0
-    ann = (total ** (252.0 / n) - 1.0) if total > 0 else 0.0
-    peak, mdd = nav[0] or 1.0, 0.0
-    for v in nav:
-        if v > peak: peak = v
-        if peak > 0: mdd = max(mdd, 1.0 - v/peak)
-    if len(rets) >= 2:
-        mean = sum(rets)/len(rets)
-        var  = sum((r-mean)**2 for r in rets) / (len(rets)-1)
-        std  = math.sqrt(var)
-        sharpe = (mean/std*math.sqrt(252)) if std > 0 else 0.0
-    else:
-        sharpe = 0.0
-    if rets:
-        winning_days = sum(1 for r in rets if r > 0)
-        win_rate = winning_days / len(rets)
-    else:
-        win_rate = 0.0
-
-    return {
-        "ann_return": float(ann),
-        "sharpe": float(sharpe),
-        "max_dd": float(mdd),
-        "win_rate": float(win_rate)  # 添加这个
-    }
 
 def fetch_price_series_local(symbol: str, days: int) -> List[Dict[str, Any]]:
     """
@@ -253,7 +213,7 @@ def local_backtest(weights: List[Dict[str, Any]], days: int, benchmark: str = "S
         bm_nav = []
 
     dd = compute_drawdown(nav)
-    metrics = compute_metrics(nav)
+    metrics = compute_metrics(nav, dates)
     return {
         "dates": dates,  # 已经是 "YYYY-MM-DD"
         "nav": nav,

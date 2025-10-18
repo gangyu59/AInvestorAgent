@@ -38,7 +38,7 @@ from backend.api.routers import testing
 from backend.api.routers import batch_update
 from backend.api.routers import symbols
 from backend.api.routers import watchlist
-
+from backend.api.routers import factors
 
 from fastapi.staticfiles import StaticFiles
 
@@ -100,6 +100,7 @@ app.include_router(testing.router)
 app.include_router(batch_update.router)
 app.include_router(symbols.router)
 app.include_router(watchlist.router)
+app.include_router(factors.router)
 
 app.router.lifespan_context = lifespan
 

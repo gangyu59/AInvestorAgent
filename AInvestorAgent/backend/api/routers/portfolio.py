@@ -80,6 +80,7 @@ class ProposeResp(BaseModel):
     snapshot_id: str
 
 
+
 @router.post("/propose", response_model=ProposeResp)
 def propose(req: ProposeReq, db: Session = Depends(get_db)):
     if not req.symbols:
@@ -115,19 +116,57 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
         sector_weights[sector] += h.get('weight', 0)
     sector_pairs = [[s, float(w)] for s, w in sector_weights.items()]
 
-    # ✅ 修改：添加初始 metrics（实际值需要回测后更新）
+    # 🔧 关键修改: propose后立即运行回测,获取真实metrics
+    real_metrics = {"ann_return": 0.0, "mdd": 0.0, "sharpe": 0.0, "winrate": 0.0}
+
+    try:
+        import urllib.request
+        import json
+
+        # 调用回测API
+        backtest_req = {
+            "holdings": [{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
+            "window_days": 252,  # 1年
+            "trading_cost": 0.001,
+            "rebalance": "weekly",
+            "benchmark_symbol": "SPY"
+        }
+
+        req_data = json.dumps(backtest_req).encode('utf-8')
+        headers = {'Content-Type': 'application/json'}
+
+        # 调用本地回测接口
+        backtest_url = "http://127.0.0.1:8000/api/backtest/run"
+        request = urllib.request.Request(backtest_url, data=req_data, headers=headers, method='POST')
+
+        with urllib.request.urlopen(request, timeout=30) as response:
+            backtest_result = json.loads(response.read().decode('utf-8'))
+
+            # 提取metrics
+            if backtest_result.get("success") and backtest_result.get("metrics"):
+                m = backtest_result["metrics"]
+                real_metrics = {
+                    "ann_return": m.get("ann_return", 0.0),
+                    "mdd": m.get("mdd", m.get("max_dd", 0.0)),
+                    "sharpe": m.get("sharpe", 0.0),
+                    "winrate": m.get("win_rate", m.get("winrate", 0.0))
+                }
+                print(f"✅ 回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
+            else:
+                print("⚠️ 回测返回成功但无metrics,使用默认值")
+
+    except Exception as e:
+        print(f"⚠️ 回测失败,使用默认metrics: {e}")
+        # 失败时保持默认的0值
+
+    # 构建完整payload
     payload: Dict[str, Any] = {
         "holdings": [HoldingOut(**h).model_dump() for h in holdings],
         "sector_concentration": sector_pairs,
         "as_of": as_of,
         "version_tag": version_tag,
         "snapshot_id": snapshot_id,
-        "metrics": {  # 👈 新增：初始 metrics
-            "ann_return": 0.0,  # 待回测更新
-            "mdd": 0.0,
-            "sharpe": 0.0,
-            "winrate": 0.0
-        }
+        "metrics": real_metrics  # 🔧 使用真实回测的metrics
     }
 
     # 保存到数据库
@@ -149,6 +188,7 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
                         created_at=datetime.utcnow().isoformat(timespec="seconds"),
                     ),
                 )
+                print(f"✅ 快照已保存: {snapshot_id}")
     except Exception as e:
         print(f"[portfolio_snapshots] 写入失败/跳过: {e}")
 
