@@ -128,3 +128,19 @@ def score_batch(payload: BatchPayload, db: Session = Depends(get_db)):
         "version_tag": version_tag,
         "items": items,
     }
+
+
+
+@router.get("/fundamentals_count")  # ⭐ 注意：实际路径会是 /api/scores/fundamentals_count
+def get_fundamentals_count():
+    """获取 fundamentals 表记录数"""
+    from backend.storage.db import SessionLocal
+    from backend.storage.models import Fundamental
+    from sqlalchemy import func
+
+    db = SessionLocal()
+    try:
+        count = db.query(func.count(Fundamental.id)).scalar() or 0
+        return {"count": count}
+    finally:
+        db.close()

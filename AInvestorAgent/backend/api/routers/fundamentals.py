@@ -1,4 +1,4 @@
-# backend/api/routers/fundamentals.py
+# backend/api/routes/fundamentals.py
 from __future__ import annotations
 from typing import Optional
 from datetime import datetime, timezone
@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["fundamentals"])
+
 
 def parse_float(v) -> Optional[float]:
     if v is None:
@@ -23,6 +24,7 @@ def parse_float(v) -> Optional[float]:
     except Exception:
         return None
 
+
 class FundamentalsResp(BaseModel):
     symbol: str
     pe: Optional[float] = Field(default=None)
@@ -34,15 +36,14 @@ class FundamentalsResp(BaseModel):
     industry: Optional[str] = None
     as_of: datetime
 
+
 @router.get("/fundamentals/{symbol}")
 def get_fundamentals(symbol: str):
     url = "https://placeholder.example/overview"
     try:
-        # 先用“两个位置参数”的方式，完全匹配单测里的 fake_get(url, params)
         try:
             r = requests.get(url, {"symbol": symbol})
         except TypeError:
-            # 兼容真实 requests.get 的关键字参数形式
             r = requests.get(url, params={"symbol": symbol})
     except Exception as e:
         raise HTTPException(status_code=429, detail=f"external error: {e}")
@@ -66,3 +67,19 @@ def get_fundamentals(symbol: str):
         industry=j.get("Industry"),
         as_of=datetime.now(timezone.utc),
     )
+
+
+# 🆕 添加统计接口
+@router.get("/api/fundamentals/count")
+def get_fundamentals_count():
+    """获取 fundamentals 表记录数"""
+    from backend.storage.db import SessionLocal
+    from backend.storage.models import Fundamental
+    from sqlalchemy import func
+
+    db = SessionLocal()
+    try:
+        count = db.query(func.count(Fundamental.id)).scalar() or 0
+        return {"count": count}
+    finally:
+        db.close()
