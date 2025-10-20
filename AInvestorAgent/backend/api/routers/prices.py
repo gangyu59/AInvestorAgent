@@ -53,8 +53,7 @@ def daily_prices(
             ),
         )
 
-    # 升序返回
-    items = [to_pricebar(r) for r in reversed(rows)]
+    items = [to_pricebar(r) for r in rows]
     return {"symbol": symbol.upper(), "items": items}
 
 
