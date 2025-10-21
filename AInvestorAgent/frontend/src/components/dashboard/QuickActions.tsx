@@ -136,7 +136,7 @@ export function QuickActions({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           symbols: watchlist,
-          as_of: new Date().toISOString().split('T')[0] // YYYY-MM-DD
+          as_of: new Date().toISOString().split('T')[0]
         })
       });
 
@@ -150,18 +150,18 @@ export function QuickActions({
         factorMessage = "⚠️ 因子计算失败";
       }
 
-      // 显示真实结果（不自动关闭）
+      // 显示真实结果(不自动关闭)
       setUpdateProgress({
         current: priceResult.total,
         total: priceResult.total,
-        currentSymbol: factorMessage, // ← 把因子结果显示在这里
+        currentSymbol: factorMessage,
         results: priceResult.results
       });
 
       alert(`✅ 更新完成!\n\n价格数据: ${priceResult.success}/${priceResult.total}\n${factorMessage}`);
 
-      onUpdate(); // 触发父组件刷新
-      setShowUpdateModal(false); // 关闭模态框
+      onUpdate();
+      setShowUpdateModal(false);
       setUpdateProgress(null);
 
     } catch (error: any) {
@@ -216,6 +216,22 @@ export function QuickActions({
       console.error("❌ 快速回测失败:", error);
       alert(`启动回测失败: ${error.message}\n\n请检查后端服务是否正常运行。`);
     }
+  };
+
+  // 🆕 历史模拟交易
+  const handleHistoricalSimulation = () => {
+    if (!watchlist || watchlist.length === 0) {
+      alert("关注列表为空,请先添加股票到Watchlist");
+      return;
+    }
+
+    // 将watchlist传递到历史模拟页面
+    const params = new URLSearchParams({
+      symbols: watchlist.join(','),
+      from: 'dashboard'
+    });
+
+    window.location.hash = `#/historical-simulator?${params.toString()}`;
   };
 
   return (
@@ -303,6 +319,30 @@ export function QuickActions({
               <div className="action-content">
                 <div className="action-title">回测模拟</div>
                 <div className="action-desc">验证当前组合</div>
+              </div>
+            </button>
+
+            {/* 🆕 历史模拟交易 */}
+            <button
+              onClick={handleHistoricalSimulation}
+              className="action-btn action-btn-historical"
+            >
+              <div className="action-icon">📊</div>
+              <div className="action-content">
+                <div className="action-title">历史模拟</div>
+                <div className="action-desc">Paper Trading</div>
+              </div>
+            </button>
+
+            {/* 个股交易 */}
+            <button
+              onClick={() => (window.location.hash = "#/trading")}
+              className="action-btn action-btn-trade"
+            >
+              <div className="action-icon">💹</div>
+              <div className="action-content">
+                <div className="action-title">模拟交易</div>
+                <div className="action-desc">执行买卖操作</div>
               </div>
             </button>
           </div>
@@ -473,6 +513,16 @@ export function QuickActions({
         .action-btn-success:not(:disabled):hover {
           border-color: rgba(34, 197, 94, 0.5);
           box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+        }
+
+        .action-btn-historical:not(:disabled):hover {
+          border-color: rgba(99, 102, 241, 0.5);
+          box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+        }
+
+        .action-btn-trade:not(:disabled):hover {
+          border-color: rgba(236, 72, 153, 0.5);
+          box-shadow: 0 0 20px rgba(236, 72, 153, 0.3);
         }
 
         /* 模态框样式 */
