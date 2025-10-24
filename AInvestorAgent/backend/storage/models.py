@@ -33,6 +33,10 @@ class PriceDaily(Base):
     high: Mapped[float | None] = mapped_column(Float)
     low: Mapped[float | None] = mapped_column(Float)
     close: Mapped[float | None] = mapped_column(Float)
+    # 🆕 添加复权字段
+    adjusted_close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dividend_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    split_coefficient: Mapped[float | None] = mapped_column(Float, nullable=True)
     volume: Mapped[int | None] = mapped_column(Integer)
 
 

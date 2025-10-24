@@ -26,7 +26,7 @@ class PriceRow:
     high: float
     low: float
     close: float
-    adj_close: float
+    adjusted_close: float
     volume: int
 
 @dataclass
@@ -64,7 +64,7 @@ SCHEMA = {
     )""",
     "prices_daily": """
     CREATE TABLE IF NOT EXISTS prices_daily(
-        symbol TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, adj_close REAL, volume INTEGER,
+        symbol TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, adjusted_close REAL, volume INTEGER,
         PRIMARY KEY(symbol, date)
     )""",
     "fundamentals": """
@@ -112,7 +112,7 @@ def upsert_fundamentals(conn: sqlite3.Connection, rows: List[FundamentalRow]):
     conn.executemany(sql, [(r.symbol,r.as_of,r.pe,r.pb,r.roe,r.net_margin,r.market_cap,r.source) for r in rows])
 
 def upsert_prices(conn: sqlite3.Connection, rows: List[PriceRow]):
-    sql = """INSERT OR REPLACE INTO prices_daily(symbol,date,open,high,low,close,adj_close,volume)
+    sql = """INSERT OR REPLACE INTO prices_daily(symbol,date,open,high,low,close,adjusted_close,volume)
              VALUES(?,?,?,?,?,?,?,?)"""
     conn.executemany(sql, [(r.symbol,r.date,r.open,r.high,r.low,r.close,r.adj_close,r.volume) for r in rows])
 

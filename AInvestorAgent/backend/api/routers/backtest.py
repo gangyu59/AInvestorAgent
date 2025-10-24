@@ -1,314 +1,350 @@
-# backtest.py — 统一到 /api/backtest/run，并兼容 holdings；更健壮的日期并集 + 前向填充
+# backend/api/routers/backtest.py - 完整回测API（调用simulator）
+"""
+完整的历史回测API - 调用 HistoricalBacktestSimulator
+
+功能:
+- 真实调仓逻辑
+- 完整税务计算（短期/长期资本利得）
+- 交易成本
+- 持仓管理
+- 用户可调参数
+- 前端完全兼容
+"""
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional, Tuple
-import hashlib, time, math, json, urllib.request
-from backend.backtest.metrics import compute_metrics, compute_drawdown
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta
+import pandas as pd
+import sys
+from pathlib import Path
+
+# 确保能导入 scripts 模块
+ROOT_DIR = Path(__file__).resolve().parents[4]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from scripts.historical_backtest_simulator import HistoricalBacktestSimulator
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
-# ---------- 请求模型 ----------
+
+# ==================== 请求模型 ====================
 class WeightItem(BaseModel):
     symbol: str
     weight: float
 
+
 class RunBacktestReq(BaseModel):
+    # 组合来源（三选一）
     snapshot_id: Optional[str] = None
     weights: Optional[List[WeightItem]] = None
     holdings: Optional[List[Dict[str, Any]]] = None
 
-    window: Optional[str] = None             # "1Y" | "6M" | "90D" | "252"
+    # 回测时间窗口
+    window: Optional[str] = None  # "1Y" | "6M" | "252D"
     window_days: Optional[int] = 252
-    trading_cost: Optional[float] = 0.001
-    rebalance: Optional[str] = "weekly"
-    max_trades_per_week: Optional[int] = 3
+
+    # 调仓频率
+    rebalance: Optional[str] = "weekly"  # weekly | monthly | daily
+    max_trades_per_week: Optional[int] = 3  # 暂未使用
+
+    # 基准
     benchmark_symbol: Optional[str] = "SPY"
+
+    # 成本参数
+    trading_cost: Optional[float] = 0.001  # 交易成本 0.1%
+
+    # 税务参数（用户可调）
+    enable_tax: Optional[bool] = True  # 是否启用税务
+    short_term_tax_rate: Optional[float] = 0.37  # 短期税率 37%
+    long_term_tax_rate: Optional[float] = 0.20  # 长期税率 20%
+
+    # 高级参数
+    initial_capital: Optional[float] = 100000.0
+    enable_factor_optimization: Optional[bool] = False
+    optimization_objective: Optional[str] = "sharpe"
+
+    # 兼容参数
     mock: Optional[bool] = False
 
-# ---------- 工具 ----------
+
+# ==================== 工具函数 ====================
 def parse_window_days(win: Optional[str], fallback: int = 252) -> int:
-    if not win: return fallback
+    """解析窗口期: 1Y→252, 6M→126, 90D→90"""
+    if not win:
+        return fallback
     w = win.strip().upper()
     try:
-        if w.endswith("Y"): return int(round(float(w[:-1]) * 252))
-        if w.endswith("M"): return int(round(float(w[:-1]) * 21))
-        if w.endswith("W"): return int(round(float(w[:-1]) * 5))
-        if w.endswith("D"): return max(int(float(w[:-1])), 5)
+        if w.endswith("Y"):
+            return int(round(float(w[:-1]) * 252))
+        if w.endswith("M"):
+            return int(round(float(w[:-1]) * 21))
+        if w.endswith("W"):
+            return int(round(float(w[:-1]) * 5))
+        if w.endswith("D"):
+            return max(int(float(w[:-1])), 5)
         return max(int(float(w)), 5)
     except Exception:
         return fallback
 
-def fetch_price_series_local(symbol: str, days: int) -> List[Dict[str, Any]]:
-    """
-    使用已有价格接口：/api/prices/daily?symbol=XXX&limit=N
-    标准化输出：[{"date":"YYYY-MM-DD","close":...}, ...]（按时间升序）
-    """
-    url = f"http://127.0.0.1:8000/api/prices/daily?symbol={symbol}&limit={days}"
-    try:
-        with urllib.request.urlopen(url, timeout=25) as resp:
-            data = json.loads(resp.read().decode("utf-8", "ignore"))
-        if isinstance(data, dict) and "items" in data:
-            items = data["items"]
-            out = []
-            for it in items:
-                out.append({"date": it.get("date",""), "close": float(it.get("close", 0))})
-            # 部分数据可能是倒序，这里统一按日期升序
-            out = [x for x in out if x["date"]]
-            out.sort(key=lambda x: x["date"])
-            return out
-        elif isinstance(data, list):
-            out = []
-            for it in data:
-                d = it.get("date") if isinstance(it, dict) else None
-                c = it.get("close") if isinstance(it, dict) else None
-                if d and c is not None:
-                    out.append({"date": d, "close": float(c)})
-            out.sort(key=lambda x: x["date"])
-            return out
-        else:
-            arr = data.get("series") or data.get("data") or []
-            out = []
-            for it in arr:
-                d = it.get("date")
-                c = it.get("close")
-                if d and c is not None:
-                    out.append({"date": d, "close": float(c)})
-            out.sort(key=lambda x: x["date"])
-            return out
-    except Exception:
-        return []
 
-def _has_enough_prices(symbol: str, need_days: int) -> bool:
-    arr = fetch_price_series_local(symbol, max(need_days+60, 420))
-    return len(arr) >= int(need_days * 0.8)  # 放宽为 80% 覆盖率
-
-def _ensure_prices_sync(symbols: List[str], need_days: int = 252) -> None:
-    """
-    回测前兜底：若价格不足，调用 /api/prices/fetch 拉全量；失败不抛异常
-    """
-    base = "http://127.0.0.1:8000"
-    for s in symbols:
-        s = (s or "").upper().strip()
-        if not s:
-            continue
-        if _has_enough_prices(s, need_days):
-            continue
-        url = f"{base}/api/prices/fetch?symbol={s}&adjusted=true&outputsize=full"
-        try:
-            with urllib.request.urlopen(url, timeout=60) as _:
-                pass
-        except Exception:
-            pass
-
-def _reindex_union_forward_fill(series_maps: List[Tuple[str, float, Dict[str, float]]],
-                                min_cov: float = 0.6
-                               ) -> Tuple[List[str], List[Tuple[str, float, List[Optional[float]]]], List[str]]:
-    """
-    把每个标的的日期→收盘价 map 重采样到**并集日期**，用前向填充补缺；
-    如果某标的覆盖率低于 min_cov（如 60%），则**丢弃**该标的。
-    返回：dates, usable_series, dropped_symbols
-    """
-    if not series_maps:
-        return [], [], []
-
-    # 日期并集（字符串 YYYY-MM-DD）
-    all_dates = sorted(set().union(*[set(m.keys()) for _,_,m in series_maps]))
-    if len(all_dates) < 10:
-        return [], [], [sym for sym,_,_ in series_maps]
-
-    usable = []
-    dropped = []
-    for sym, w, mp in series_maps:
-        # 原始覆盖率
-        cov = sum(1 for d in all_dates if d in mp) / float(len(all_dates))
-        if cov < min_cov:
-            dropped.append(sym)
-            continue
-
-        # 前向填充
-        seq: List[Optional[float]] = []
-        last = None
-        for d in all_dates:
-            v = mp.get(d)
-            if v is None:
-                seq.append(last)
-            else:
-                last = float(v)
-                seq.append(last)
-        # 仍有大量 None（完全没首值），丢弃
-        if all(x is None for x in seq):
-            dropped.append(sym)
-            continue
-        usable.append((sym, w, seq))
-
-    return all_dates, usable, dropped
-
-def local_backtest(weights: List[Dict[str, Any]], days: int, benchmark: str = "SPY") -> Dict[str, Any]:
-    # 1) 拉价格（多给些天数，保证覆盖）
-    series_maps = []
-    debug_rows = []
-    for w in weights:
-        sym = str(w.get("symbol") or "").upper().strip()
-        wt  = float(w.get("weight") or 0.0)
-        if not sym or wt <= 0:
-            continue
-        arr = fetch_price_series_local(sym, max(days+120, 600))
-        mp = { (d.get("date") or "")[:10]: float(d.get("close") or 0.0)
-               for d in arr if d.get("date") and d.get("close") is not None }
-        debug_rows.append({"symbol": sym, "points": len(mp)})
-        if len(mp) >= 10:
-            series_maps.append((sym, wt, mp))
-
-    if not series_maps:
-        return {"dates": [], "nav": [], "benchmark_nav": [], "drawdown": [], "metrics": {}, "debug": {"symbols": debug_rows, "dropped": []}}
-
-    # 2) 日期并集 + 前向填充，并按覆盖率过滤（<60%丢弃）
-    dates, usable, dropped = _reindex_union_forward_fill(series_maps, min_cov=0.4)
-    if len(dates) < 10 or not usable:
-        return {"dates": [], "nav": [], "benchmark_nav": [], "drawdown": [], "metrics": {}, "debug": {"symbols": debug_rows, "dropped": dropped}}
-
-    # 3) 归一化权重（基于 usable）
-    total_w = sum(max(0.0, float(w)) for _, w, _ in usable) or 1.0
-    ws = [(sym, float(w)/total_w, seq) for sym, w, seq in usable]
-
-    # 4) 组合 NAV（用前向填充后的价序列）
-    nav = [1.0]
-    for i in range(1, len(dates)):
-        r = 0.0
-        for _, w, seq in ws:
-            p0, p1 = seq[i-1], seq[i]
-            if p0 and p1 and p0 > 0:
-                r += w * (p1/p0 - 1.0)
-            # 如果该标的在该日仍为 None（极少数），视为 0 收益
-        nav.append(nav[-1] * (1.0 + r))
-
-    # 5) 基准对齐到同一 dates（并做前向填充）
-    bm_nav: List[float] = []
-    try:
-        bm_arr = fetch_price_series_local(benchmark, max(days+120, 600))
-        bm = { (d.get("date") or "")[:10]: float(d.get("close") or 0.0)
-               for d in bm_arr if d.get("date") and d.get("close") is not None }
-        bm_seq: List[Optional[float]] = []
-        last = None
-        for d in dates:
-            v = bm.get(d)
-            if v is None:
-                bm_seq.append(last)
-            else:
-                last = float(v)
-                bm_seq.append(last)
-        # 归一
-        if bm_seq and bm_seq[0]:
-            start = bm_seq[0]
-            bm_nav = [ (x/start) if (x and start) else None for x in bm_seq ]
-            # 用组合的有效点位做截断（避免 None）
-            for i, x in enumerate(bm_nav):
-                if x is None:
-                    # 若仍为 None，就用最近的有效值
-                    bm_nav[i] = bm_nav[i-1] if i > 0 else 1.0
-        else:
-            bm_nav = []
-    except Exception:
-        bm_nav = []
-
-    dd = compute_drawdown(nav)
-    metrics = compute_metrics(nav, dates)
-    return {
-        "dates": dates,  # 已经是 "YYYY-MM-DD"
-        "nav": nav,
-        "benchmark_nav": bm_nav[:len(nav)] if bm_nav else [],
-        "drawdown": dd[:len(nav)],
-        "metrics": metrics,
-        "debug": {
-            "symbols": debug_rows,
-            "used": [sym for sym,_,_ in usable],
-            "dropped": dropped,
-            "dates_cnt": len(dates),
-        }
+def parse_rebalance_freq(rebalance: str) -> str:
+    """转换调仓频率: weekly→W-MON, monthly→MS"""
+    mapping = {
+        "weekly": "W-MON",
+        "monthly": "MS",
+        "daily": "D",
+        "biweekly": "2W-MON"
     }
+    return mapping.get(rebalance.lower(), "W-MON")
 
-def _align_lengths_payload(data: Dict[str, Any]) -> Dict[str, Any]:
-    dates = data.get("dates") or []
-    nav = data.get("nav") or []
-    k = min(len(dates), len(nav))
-    if k <= 0:
-        data["dates"], data["nav"] = [], []
-        data["benchmark_nav"] = []
-        data["drawdown"] = []
-        data["metrics"] = {}
-        return data
-    data["dates"] = dates[:k]
-    data["nav"] = nav[:k]
-    if isinstance(data.get("benchmark_nav"), list):
-        data["benchmark_nav"] = data["benchmark_nav"][:k]
-    if isinstance(data.get("drawdown"), list):
-        data["drawdown"] = data["drawdown"][:k]
-    return data
 
-# ---------- 主路由 ----------
-@router.post("/run")
-def run_backtest(req: RunBacktestReq):
-    window_days = parse_window_days(req.window, req.window_days or 252)
-
-    # 接受 weights 或 holdings（可同时传，合并归一化）
+def extract_watchlist(req: RunBacktestReq) -> List[str]:
+    """
+    从请求中提取股票池
+    优先级: weights > holdings > snapshot_id
+    """
     merged: Dict[str, float] = {}
 
+    # 处理 weights
     if req.weights:
         for w in req.weights:
             if isinstance(w, dict):
                 s = (w.get("symbol") or "").upper().strip()
                 v = float(w.get("weight") or 0.0)
             else:
-                d = w.model_dump()
-                s = (d.get("symbol") or "").upper().strip()
-                v = float(d.get("weight") or 0.0)
+                s = (w.symbol or "").upper().strip()
+                v = float(w.weight or 0.0)
             if s:
                 merged[s] = merged.get(s, 0.0) + v
 
+    # 处理 holdings
     if req.holdings:
         for h in req.holdings:
-            s = (str(h.get("symbol")) if h.get("symbol") is not None else "").upper().strip()
+            s = str(h.get("symbol", "")).upper().strip()
             v = float(h.get("weight") or 0.0)
             if s:
                 merged[s] = merged.get(s, 0.0) + v
 
-    if not merged and req.snapshot_id:
-        # TODO: 若你支持 snapshot → weights 的查询，在此填充 merged
-        pass
+    # TODO: 处理 snapshot_id
+    # if req.snapshot_id and not merged:
+    #     from backend.storage.db import Session, engine
+    #     from backend.storage.models import PortfolioSnapshot
+    #     # 查询数据库...
 
     if not merged:
-        raise HTTPException(status_code=422, detail="请传 weights 或 holdings（或提供 snapshot_id → weights 的查询）")
+        raise HTTPException(
+            status_code=422,
+            detail="请提供 weights、holdings 或 snapshot_id"
+        )
 
-    # 归一化
+    # 归一化权重（虽然simulator会重新计算，但这里验证一下）
     total = sum(max(0.0, v) for v in merged.values())
     if total <= 0:
-        raise HTTPException(status_code=422, detail="sum(weights) must be > 0")
-    raw_weights = [{"symbol": s, "weight": v/total} for s, v in merged.items()]
+        raise HTTPException(
+            status_code=422,
+            detail="权重总和必须大于0"
+        )
 
-    # 价格兜底（含基准）
-    all_syms = [w["symbol"] for w in raw_weights]
-    if req.benchmark_symbol:
-        all_syms.append((req.benchmark_symbol or "SPY").upper())
-    _ensure_prices_sync(all_syms, need_days=window_days)
+    return list(merged.keys())
 
-    # 本地回测
-    local = local_backtest(raw_weights, window_days, req.benchmark_symbol or "SPY")
-    local = _align_lengths_payload(local)
 
-    backtest_id = "bt_" + hashlib.md5(
-        f"local|{window_days}|{req.trading_cost}|{req.rebalance or 'weekly'}|{time.time()}".encode("utf-8")
-    ).hexdigest()[:10]
+# ==================== 主路由 ====================
+@router.post("/run")
+def run_backtest(req: RunBacktestReq):
+    """
+    运行完整历史回测
 
-    return {
-        "success": True,
-        **local,
-        "params": {
-            "window": req.window or f"{window_days}D",
-            "cost": req.trading_cost,
-            "rebalance": req.rebalance or "weekly",
-            "max_trades_per_week": req.max_trades_per_week or 3,
-        },
-        "version_tag": "bt_local_v2_union_ffill",
-        "backtest_id": backtest_id,
-    }
+    返回格式兼容前端，包含:
+    - dates: 日期序列
+    - nav: 净值序列
+    - benchmark_nav: 基准净值
+    - drawdown: 回撤序列
+    - metrics: 性能指标（含税务）
+    - trades: 交易明细
+    - params: 回测参数
+    """
+    try:
+        # 1. 解析参数
+        window_days = parse_window_days(req.window, req.window_days or 252)
+        rebalance_freq = parse_rebalance_freq(req.rebalance or "weekly")
+        watchlist = extract_watchlist(req)
+
+        # 2. 计算日期范围
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=window_days)).strftime("%Y-%m-%d")
+
+        # 3. 打印回测配置
+        print(f"\n{'=' * 60}")
+        print(f"🚀 开始完整回测")
+        print(f"{'=' * 60}")
+        print(f"📊 股票池: {', '.join(watchlist)} ({len(watchlist)}只)")
+        print(f"📅 期间: {start_date} → {end_date} ({window_days}天)")
+        print(f"🔄 调仓: {req.rebalance} ({rebalance_freq})")
+        print(f"💰 初始资金: ${req.initial_capital:,.2f}")
+        print(f"💵 交易成本: {req.trading_cost * 100:.2f}%")
+        print(f"📈 因子优化: {'启用' if req.enable_factor_optimization else '禁用'}")
+
+        if req.enable_tax:
+            print(f"💸 税务计算: 启用")
+            print(f"   短期税率: {req.short_term_tax_rate * 100:.1f}% (持有≤1年)")
+            print(f"   长期税率: {req.long_term_tax_rate * 100:.1f}% (持有>1年)")
+        else:
+            print(f"💸 税务计算: 禁用")
+
+        # 4. 创建模拟器
+        simulator = HistoricalBacktestSimulator(
+            watchlist=watchlist,
+            initial_capital=req.initial_capital or 100000.0,
+            start_date=start_date,
+            end_date=end_date,
+            short_term_tax_rate=req.short_term_tax_rate if req.enable_tax else 0.0,
+            long_term_tax_rate=req.long_term_tax_rate if req.enable_tax else 0.0,
+            enable_factor_optimization=req.enable_factor_optimization or False,
+            optimization_objective=req.optimization_objective or "sharpe"
+        )
+
+        # 5. 运行回测
+        simulator.run_backtest(rebalance_frequency=rebalance_freq)
+
+        # 6. 获取性能指标
+        metrics = simulator.get_performance_metrics()
+
+        # 7. 格式化历史数据
+        history_df = pd.DataFrame(simulator.history)
+
+        # 8. 格式化交易记录（最多返回200笔）
+        trades_formatted = []
+        for t in simulator.trades[:200]:
+            trades_formatted.append({
+                "date": t["date"].strftime("%Y-%m-%d") if hasattr(t["date"], "strftime") else str(t["date"]),
+                "symbol": t["symbol"],
+                "action": t["action"],
+                "shares": round(t["shares"], 4),
+                "price": round(t["price"], 2),
+                "value": round(t["value"], 2),
+                "tax": round(t.get("tax", 0), 2),
+                "net_value": round(t.get("net_value", t["value"]), 2),
+                "capital_gain": round(t.get("capital_gain", 0), 2) if "capital_gain" in t else None
+            })
+
+        # 9. 构建响应（完全兼容前端）
+        response = {
+            "success": True,
+
+            # 时间序列数据
+            "dates": [d.strftime("%Y-%m-%d") for d in history_df["date"]],
+            "nav": [round(float(x), 6) for x in history_df["nav"].tolist()],
+            "benchmark_nav": [],  # TODO: 添加基准对比
+            "drawdown": [round(float(x), 2) for x in history_df["drawdown"].tolist()],
+
+            # 性能指标（包含税务）
+            "metrics": {
+                # 收益指标
+                "total_return_before_tax": round(metrics["total_return_before_tax"], 2),
+                "total_return_after_tax": round(metrics["total_return_after_tax"], 2),
+                "annualized_return_before_tax": round(metrics["annualized_return_before_tax"], 2),
+                "annualized_return_after_tax": round(metrics["annualized_return_after_tax"], 2),
+
+                # 风险指标
+                "sharpe": round(metrics["sharpe_ratio"], 3),
+                "sharpe_ratio": round(metrics["sharpe_ratio"], 3),  # 兼容两种命名
+                "max_drawdown": round(metrics["max_drawdown"], 2),
+
+                # 交易指标
+                "total_trades": metrics["total_trades"],
+                "win_rate": round(metrics["win_rate"], 2),
+
+                # 税务指标
+                "tax_impact_pct": round(metrics["tax_impact_pct"], 2),
+                "total_tax_paid": round(metrics["total_tax_paid"], 2),
+                "total_capital_gains": round(metrics["total_capital_gains"], 2),
+                "total_capital_losses": round(metrics["total_capital_losses"], 2),
+
+                # 最终价值
+                "final_value_before_tax": round(metrics["final_value_before_tax"], 2),
+                "final_value_after_tax": round(metrics["final_value_after_tax"], 2),
+            },
+
+            # 交易记录
+            "trades": trades_formatted,
+
+            # 回测参数（记录用户设置）
+            "params": {
+                "window": req.window or f"{window_days}D",
+                "window_days": window_days,
+                "cost": req.trading_cost,
+                "trading_cost": req.trading_cost,  # 兼容
+                "rebalance": req.rebalance or "weekly",
+                "max_trades_per_week": req.max_trades_per_week or 3,
+                "benchmark": req.benchmark_symbol or "SPY",
+                "enable_tax": req.enable_tax,
+                "short_term_tax_rate": req.short_term_tax_rate if req.enable_tax else 0,
+                "long_term_tax_rate": req.long_term_tax_rate if req.enable_tax else 0,
+                "initial_capital": req.initial_capital,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+
+            # 版本标识
+            "version_tag": "full_backtest_with_tax_v1.0",
+            "backtest_id": f"bt_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+
+            # 调试信息
+            "debug": {
+                "watchlist": watchlist,
+                "total_days": len(history_df),
+                "total_trades": len(simulator.trades),
+                "final_positions": len(simulator.holdings),
+                "rebalance_frequency": rebalance_freq,
+            }
+        }
+
+        # 10. 打印结果摘要
+        print(f"\n{'=' * 60}")
+        print(f"✅ 回测完成")
+        print(f"{'=' * 60}")
+        print(f"📊 总交易: {metrics['total_trades']}笔")
+        print(f"💰 税前收益率: {metrics['total_return_before_tax']:.2f}%")
+        print(f"💰 税后收益率: {metrics['total_return_after_tax']:.2f}%")
+        print(f"💸 税务影响: {metrics['tax_impact_pct']:.2f}%")
+        print(f"📉 最大回撤: {metrics['max_drawdown']:.2f}%")
+        print(f"📈 夏普比率: {metrics['sharpe_ratio']:.3f}")
+        print(f"🎯 胜率: {metrics['win_rate']:.1f}%")
+
+        return response
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"无法导入回测模块: {str(e)}\n请检查 scripts/historical_backtest_simulator.py 是否存在"
+        )
+    except Exception as e:
+        import traceback
+        error_msg = f"回测失败: {str(e)}\n{traceback.format_exc()}"
+        print(f"\n❌ {error_msg}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
+
+
+# ==================== 健康检查 ====================
+@router.get("/health")
+def backtest_health():
+    """检查回测模块是否正常"""
+    try:
+        # 尝试导入
+        from scripts.historical_backtest_simulator import HistoricalBacktestSimulator
+        return {
+            "status": "ok",
+            "simulator": "available",
+            "version": "1.0"
+        }
+    except ImportError as e:
+        return {
+            "status": "error",
+            "simulator": "unavailable",
+            "error": str(e)
+        }

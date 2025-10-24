@@ -46,7 +46,10 @@ def sync_prices_daily(symbol: str, session: Session) -> int:
             high=_parse_float(row.get("2. high")),
             low=_parse_float(row.get("3. low")),
             close=_parse_float(row.get("4. close")),
-            volume=int(float(row.get("6. volume"))) if row.get("6. volume") else None
+            adjusted_close=_parse_float(row.get("5. adjusted close")),  # 🆕 添加
+            volume=int(float(row.get("6. volume"))) if row.get("6. volume") else None,
+            dividend_amount=_parse_float(row.get("7. dividend amount")),  # 🆕 添加
+            split_coefficient=_parse_float(row.get("8. split coefficient")),  # 🆕 添加
         )
         # SQLite UPSERT
         stmt = stmt.on_conflict_do_update(
@@ -56,7 +59,10 @@ def sync_prices_daily(symbol: str, session: Session) -> int:
                 "high": stmt.excluded.high,
                 "low": stmt.excluded.low,
                 "close": stmt.excluded.close,
+                "adjusted_close": stmt.excluded.adjusted_close,  # 🆕 添加
                 "volume": stmt.excluded.volume,
+                "dividend_amount": stmt.excluded.dividend_amount,  # 🆕 添加
+                "split_coefficient": stmt.excluded.split_coefficient,  # 🆕 添加
             }
         )
         session.execute(stmt)
