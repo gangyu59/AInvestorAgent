@@ -1,71 +1,188 @@
 # AInvestorAgent/backend/ingestion/news_api_client.py
 import os
-import hashlib
 from typing import List, Dict, Any
 from datetime import datetime, timedelta, timezone
 import requests
+from dotenv import load_dotenv
 
-NEWS_API_KEY = os.getenv("NEWS_API_KEY") or os.getenv("NEWSAPI_KEY") or ""
+# 自动加载 .env（保持你原本逻辑）
+load_dotenv()
 
-class NewsApiClient:
-    def __init__(self):
-        self.api_key = NEWS_API_KEY
+NEWS_API_KEY = (
+    os.getenv("NEWS_API_KEY")
+    or os.getenv("NEWSAPI_KEY")
+    or os.getenv("NEWS_APIKEY")
+    or ""
+)
 
-    def _pseudo_score(self, text: str) -> float:
-        """无密钥/无模型时，给个稳定的小幅度情绪分，避免前端直线。"""
-        if not text:
-            return 0.0
-        h = int(hashlib.md5(text.encode("utf-8")).hexdigest(), 16)
-        # 映射到 [-0.4, 0.4] 区间
-        return ((h % 200) - 100) / 250.0
+BASE_URL = "https://newsapi.org/v2/everything"
 
-    def fetch_news(self, symbol: str, days: int = 14, limit: int = 50) -> List[Dict[str, Any]]:
-        since = datetime.now(timezone.utc) - timedelta(days=max(1, days))
-        out: List[Dict[str, Any]] = []
+# =========================================
+# 你的 watchlist 22 只 + 常见别名（可随时补）
+# =========================================
+SYMBOL_ALIASES: dict[str, list[str]] = {
+    # —— 你已有的（节选）——
+    "AAPL": ["Apple", "Apple Inc", "Apple Computer"],
+    "MSFT": ["Microsoft", "Microsoft Corp", "Microsoft Corporation"],
+    "NVDA": ["Nvidia", "NVIDIA Corp", "NVIDIA Corporation"],
+    "AMZN": ["Amazon", "Amazon.com", "Amazon.com Inc"],
+    "GOOGL": ["Google", "Alphabet", "Alphabet Inc"],
+    "TSLA": ["Tesla", "Tesla Motors", "Tesla Inc"],
+    "META": ["Meta", "Facebook", "Meta Platforms", "Meta Platforms Inc"],
+    "APP":  ["AppLovin", "Applovin", "AppLovin Corp", "AppLovin Corporation"],
+    "ORCL": ["Oracle", "Oracle Corp", "Oracle Corporation"],
+    "AVGO": ["Broadcom", "Broadcom Inc"],
+    "AMD":  ["AMD", "Advanced Micro Devices", "Advanced Micro Devices Inc"],
+    "INOD": ["Innodata", "Innodata Inc"],
+    "SHOP": ["Shopify", "Shopify Inc"],
+    "PATH": ["UiPath", "UiPath Inc"],
+    "ARM":  ["Arm Holdings", "ARM Holdings", "Arm Holdings Plc"],
+    "ASML": ["ASML", "ASML Holding", "ASML Holding NV"],
 
-        if self.api_key:  # ✅ 有 key：走真实 NewsAPI.org（或你接的 news.org）
+    # ===== 重点补强这 6 只 =====
+    # Constellation Energy（媒体常省略 Corporation / Group）
+    "CEG": [
+        "Constellation Energy",
+        "Constellation Energy Corp",
+        "Constellation Energy Corporation",
+        "Constellation Energy Group",
+        "Constellation",  # 常见简称
+    ],
+
+    # Vistra（很多稿子写“Vistra Energy”，尤其旧文和行业报道）
+    "VST": [
+        "Vistra",
+        "Vistra Corp",
+        "Vistra Corporation",
+        "Vistra Energy",
+    ],
+
+    # Centrus Energy（也常写为“Centrus”）
+    "LEU": [
+        "Centrus Energy",
+        "Centrus Energy Corp",
+        "Centrus Energy Corporation",
+        "Centrus",
+    ],
+
+    # Iris Energy（上市主体是 Limited）
+    "IREN": [
+        "Iris Energy",
+        "Iris Energy Limited",
+        "Iris Energy Ltd",
+    ],
+
+    # Neuberger Berman Income Securities（封闭式基金，媒体多写全称）
+    "NBIS": [
+        "Neuberger Berman",
+        "Neuberger Berman Income Securities",
+        "Neuberger Berman Income Securities Fund",
+        "Neuberger Berman Income Securities Fund Inc",
+    ],
+
+    # Palantir（多数报道写公司名）
+    "PLTR": [
+        "Palantir",
+        "Palantir Technologies",
+        "Palantir Technologies Inc",
+    ],
+}
+
+
+def build_terms(symbol: str) -> list[str]:
+    """
+    为 NewsAPI 逐个请求生成关键词列表（每个 term 单独作为 q）：
+    - 代码（"ORCL"）
+    - 美股常见写法：$ORCL
+    - 交易所前缀（两种空格风格）："NASDAQ:ORCL" / "NYSE:ORCL" / "NASDAQ: ORCL" / "NYSE: ORCL"
+    - 公司别名（逐个短语）
+    统一用引号包裹，强制短语匹配。
+    """
+    sym = symbol.upper().strip()
+    aliases = SYMBOL_ALIASES.get(sym, [])
+
+    terms: list[str] = []
+    # 代码
+    terms.append(f'"{sym}"')
+    # $代码
+    terms.append(f'"${sym}"')
+    # 交易所前缀（无空格 & 带空格两套）
+    for ex in ("NASDAQ", "NYSE"):
+        terms.append(f'"{ex}:{sym}"')
+        terms.append(f'"{ex}: {sym}"')
+
+    # 公司别名
+    for a in aliases:
+        a2 = a.strip()
+        if not a2:
+            continue
+        terms.append(f'"{a2}"')
+
+    # 去重保持顺序（防止无意义重复）
+    seen = set()
+    deduped = []
+    for t in terms:
+        if t not in seen:
+            seen.add(t)
+            deduped.append(t)
+    return deduped
+
+
+
+
+def fetch_news(symbol: str, days: int = 14, limit: int = 100, pages: int = 1) -> List[Dict[str, Any]]:
+    """
+    从 NewsAPI 抓取新闻：
+    - 不用 OR 拼接在同一个 q；
+    - 对每个 term（代码/$代码/交易所前缀/公司名别名）分别请求，再在本地按 url 去重合并。
+    """
+    if not NEWS_API_KEY:
+        raise RuntimeError("未检测到 NEWS_API_KEY，请在 .env 中设置你的 NewsAPI 密钥。")
+
+    since_dt = datetime.now(timezone.utc) - timedelta(days=max(1, days))
+    since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    page_size = min(max(limit, 1), 100)
+
+    headers = {"X-Api-Key": NEWS_API_KEY}
+    out: List[Dict[str, Any]] = []
+    seen_urls: set[str] = set()
+
+    for term in build_terms(symbol):
+        for page in range(1, max(1, pages) + 1):
             params = {
-                "q": symbol,
-                "from": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "q": term,
+                "from": since_str,
                 "sortBy": "publishedAt",
                 "language": "en",
-                "pageSize": min(max(limit, 1), 100),
-                "apiKey": self.api_key,
+                "searchIn": "title,description,content",
+                "pageSize": page_size,
+                "page": page,
             }
-            r = requests.get("https://newsapi.org/v2/everything", params=params, timeout=10)
-            if r.ok:
-                j = r.json()
-                for a in j.get("articles", []):
-                    title = a.get("title") or ""
-                    desc = a.get("description") or ""
-                    url = a.get("url") or ""
-                    published_at = a.get("publishedAt") or ""
-                    # 这里先不给复杂模型，使用轻量兜底（如果你已有模型，换成你的 score_text(title+desc) 即可）
-                    score = self._pseudo_score(f"{title} {desc}")
-                    out.append({
-                        "title": title,
-                        "url": url,
-                        "published_at": published_at,
-                        "sentiment": score,
-                    })
-                return out
+            r = requests.get(BASE_URL, params=params, headers=headers, timeout=20)
+            if not r.ok:
+                break
+            j = r.json()
+            articles = j.get("articles", [])
+            if not articles:
+                break
 
-        # ❌ 无 key 或请求失败：返回你原本的 mock，但补上 pseudo score，保证可视化不是直线
-        now = datetime.now(timezone.utc)
-        syms = [symbol]  # 你也可能外层多 symbol 聚合，这里只返回当前 symbol 的列表
-        for i in range(min(limit, max(1, days))):
-            dt = now - timedelta(days=i % max(1, days))
-            title = f"{symbol} mock #{i}"
-            out.append({
-                "title": title,
-                "url": f"http://mock/{symbol}/{i}",
-                "published_at": dt.isoformat(),
-                "sentiment": self._pseudo_score(title),
-            })
-        return out
+            for a in articles:
+                url = a.get("url") or ""
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                out.append({
+                    "title": a.get("title") or "",
+                    "description": a.get("description") or "",
+                    "url": url,
+                    "source": (a.get("source") or {}).get("name"),
+                    "published_at": a.get("publishedAt") or "",
+                })
 
-news_api_client = NewsApiClient()
+            if len(articles) < page_size:
+                break
 
-def fetch_news(symbol: str, days: int = 14, limit: int = 50) -> List[Dict[str, Any]]:
-    # 统一从实例走，避免引入返回空列表的旧实现
-    return news_api_client.fetch_news(symbol=symbol, days=days, limit=limit)
+    out.sort(key=lambda x: (x.get("published_at") or ""), reverse=True)
+    return out
+
+

@@ -115,8 +115,8 @@ export function QuickActions({
           symbols: watchlist,
           force_full: forceFull,
           update_prices: true,
-          update_news: false,
-          update_fundamentals: false
+          update_news: true,
+          update_fundamentals: true
         })
       });
 
