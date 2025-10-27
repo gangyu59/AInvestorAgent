@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 # ↓↓↓ 按你的项目实际路径修改导入 ↓↓↓
 from backend.storage.db import get_db
-from backend.ingestion.news_api_client import NewsApiClient
+from backend.ingestion.news_api_client import fetch_news as fetch_news_from_api
 
 router = APIRouter(prefix="/api/news", tags=["news"])
 
@@ -96,9 +96,8 @@ def fetch(
             return {"data": [], "source": "local", "warning": f"db_error: {e}"}
 
     # remote/auto：优先外部，再回退本地
-    client = NewsApiClient()
     try:
-        remote_items = client.fetch_news(symbol=symbol, days=days, limit=limit) or []
+        remote_items = fetch_news_from_api(symbol=symbol, days=days, limit=limit) or []
         if remote_items:
             data: List[Dict[str, Any]] = []
             for it in remote_items[:limit]:

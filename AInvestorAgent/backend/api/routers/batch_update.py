@@ -252,6 +252,25 @@ async def smart_update(
                 logger.info(f"⏱️ 等待{wait_seconds}秒...")
                 time.sleep(wait_seconds)
 
+    # 🆕 新闻抓取和打分
+    if request.update_news:
+        try:
+            logger.info("📰 抓取和打分新闻...")
+            symbols_str = ",".join(request.symbols)
+            result = subprocess.run(
+                ["python", "scripts/fetch_news.py",
+                 "--symbols", symbols_str,
+                 "--days", "30",
+                 "--pages", "2"],
+                capture_output=True, text=True, timeout=300
+            )
+            if result.returncode == 0:
+                logger.info(f"✅ 新闻更新完成")
+            else:
+                logger.warning(f"⚠️ 新闻更新失败: {result.stderr}")
+        except Exception as e:
+            logger.error(f"新闻更新异常: {e}")
+
     factors_rebuilt = False
     if request.auto_factors and any(r.success for r in results):
         try:
