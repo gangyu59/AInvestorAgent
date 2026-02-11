@@ -671,8 +671,9 @@ def decide(req: DecideReq):
             from backend.agents.backtest_engineer import _load_prices, _align_by_date, _portfolio_nav
 
             weights_dict = {h["symbol"]: float(h["weight"]) for h in holdings}
-            end_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-            start_str = (datetime.datetime.utcnow() - datetime.timedelta(days=252)).strftime("%Y-%m-%d")
+            # 🔧 统一使用 datetime.now() (与 backtest.py 一致)
+            end_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            start_str = (datetime.datetime.now() - datetime.timedelta(days=252)).strftime("%Y-%m-%d")
 
             price_map = {}
             for sym in weights_dict:
@@ -685,13 +686,17 @@ def decide(req: DecideReq):
                 if dates and len(dates) > 10:
                     bt_result = _portfolio_nav(dates, closes, weights_dict, tc=0.001)
                     m = bt_result.get("metrics", {})
+                    nav = bt_result.get("nav", [])
+                    total_ret = (nav[-1] / nav[0] - 1) if nav and nav[0] > 0 else 0.0
                     real_metrics = {
                         "ann_return": round(m.get("ann_return", 0.0), 6),
+                        "total_return": round(total_ret, 6),
                         "mdd": round(m.get("mdd", m.get("max_dd", 0.0)), 6),
                         "sharpe": round(m.get("sharpe", 0.0), 4),
                         "winrate": round(m.get("win_rate", 0.0), 4)
                     }
-                    print(f"✅ [decide] 直接回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
+                    print(f"✅ [decide] 直接回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%, "
+                          f"累计收益: {real_metrics['total_return'] * 100:.2f}%")
         except Exception as e:
             print(f"⚠️ [decide] 回测失败: {e}")
 

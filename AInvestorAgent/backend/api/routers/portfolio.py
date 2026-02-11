@@ -126,8 +126,9 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
 
         # 用portfolio的实际权重做回测
         weights_dict = {h["symbol"]: float(h["weight"]) for h in holdings}
-        end_str = datetime.utcnow().strftime("%Y-%m-%d")
-        start_str = (datetime.utcnow() - timedelta(days=252)).strftime("%Y-%m-%d")
+        # 🔧 统一使用 datetime.now() (与 backtest.py 一致)
+        end_str = datetime.now().strftime("%Y-%m-%d")
+        start_str = (datetime.now() - timedelta(days=252)).strftime("%Y-%m-%d")
 
         # 加载价格并对齐
         price_map = {}
@@ -143,14 +144,16 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
                 bt_result = _portfolio_nav(dates, closes, weights_dict, tc=0.001)
                 nav = bt_result.get("nav", [])
                 m = bt_result.get("metrics", {})
-
+                total_ret = (nav[-1] / nav[0] - 1) if nav and nav[0] > 0 else 0.0
                 real_metrics = {
                     "ann_return": round(m.get("ann_return", 0.0), 6),
+                    "total_return": round(total_ret, 6),
                     "mdd": round(m.get("mdd", m.get("max_dd", 0.0)), 6),
                     "sharpe": round(m.get("sharpe", 0.0), 4),
                     "winrate": round(m.get("win_rate", 0.0), 4)
                 }
-                print(f"✅ 直接回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
+                print(f"✅ 直接回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%, "
+                      f"累计收益: {real_metrics['total_return'] * 100:.2f}%")
             else:
                 print("⚠️ 价格数据不足(<10天),使用默认metrics")
         else:
@@ -264,6 +267,8 @@ async def get_latest_snapshot(db: Session = Depends(get_db)):
     """
     获取最新的组合快照
     用于Dashboard显示
+    🔧 关键修复: 每次返回时用存储的holdings实时重算metrics,
+    确保首页显示值与回测页完全一致(同引擎、同权重、同时间窗口)
     """
     from backend.storage.models import PortfolioSnapshot
     import json
@@ -302,18 +307,63 @@ async def get_latest_snapshot(db: Session = Depends(get_db)):
         sector = h.get('sector', 'Unknown')
         sector_weights[sector] += h.get('weight', 0)
 
+    # ====================================================================
+    # 🔧 关键修复: 用存储的holdings实时重算metrics
+    # 确保首页与回测页使用完全相同的引擎(BacktestEngineer._portfolio_nav)
+    # 完全相同的时间窗口(252 calendar days)和交易成本(0.001)
+    # ====================================================================
+    fresh_metrics = payload.get("metrics", {
+        "ann_return": 0.0, "mdd": 0.0, "sharpe": 0.0, "winrate": 0.0
+    })
+
+    try:
+        from backend.agents.backtest_engineer import _load_prices, _align_by_date, _portfolio_nav
+        from datetime import timedelta
+
+        weights_dict = {h["symbol"]: float(h["weight"])
+                        for h in holdings if h.get("weight")}
+        if weights_dict:
+            end_str = datetime.now().strftime("%Y-%m-%d")
+            start_str = (datetime.now() - timedelta(days=252)).strftime("%Y-%m-%d")
+
+            price_map = {}
+            for sym in weights_dict:
+                series = _load_prices(sym, start_str, end_str, use_mock=False)
+                if series:
+                    price_map[sym] = sorted(series, key=lambda x: x.get("date", ""))
+
+            if price_map:
+                dates, closes = _align_by_date(price_map)
+                if dates and len(dates) > 10:
+                    bt_result = _portfolio_nav(dates, closes, weights_dict, tc=0.001)
+                    m = bt_result.get("metrics", {})
+                    nav = bt_result.get("nav", [])
+                    total_return = (nav[-1] / nav[0] - 1) if nav and nav[0] > 0 else 0.0
+
+                    fresh_metrics = {
+                        "ann_return": round(m.get("ann_return", 0.0), 6),
+                        "total_return": round(total_return, 6),
+                        "mdd": round(m.get("mdd", m.get("max_dd", 0.0)), 6),
+                        "sharpe": round(m.get("sharpe", 0.0), 4),
+                        "winrate": round(m.get("win_rate", 0.0), 4),
+                    }
+                    print(f"✅ snapshots/latest 实时重算: ann={fresh_metrics['ann_return']*100:.2f}%, "
+                          f"total={fresh_metrics['total_return']*100:.2f}%, "
+                          f"sharpe={fresh_metrics['sharpe']:.2f}")
+                else:
+                    print("⚠️ snapshots/latest: 价格对齐后数据不足,使用存储值")
+            else:
+                print("⚠️ snapshots/latest: 无法加载价格,使用存储值")
+    except Exception as e:
+        print(f"⚠️ snapshots/latest 重算失败,使用存储值: {e}")
+
     return {
         "snapshot_id": latest.snapshot_id,
         "as_of": latest.as_of or latest.created_at.isoformat(),
         "version_tag": latest.version_tag or "v1.0",
         "holdings": holdings,
         "sector_concentration": [[k, v] for k, v in sector_weights.items()],
-        "metrics": payload.get("metrics", {
-            "ann_return": 0.0,
-            "mdd": 0.0,
-            "sharpe": 0.0,
-            "winrate": 0.0
-        })
+        "metrics": fresh_metrics
     }
 
 
