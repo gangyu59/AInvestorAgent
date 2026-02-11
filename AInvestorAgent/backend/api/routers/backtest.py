@@ -65,6 +65,9 @@ class RunBacktestReq(BaseModel):
     enable_factor_optimization: Optional[bool] = False
     optimization_objective: Optional[str] = "sharpe"
 
+    # 回测模式: "scoring"=动态评分调仓(HistoricalBacktestSimulator), "fixed"=固定权重(BacktestEngineer)
+    mode: Optional[str] = "fixed"  # 默认固定权重模式，确保与portfolio页面一致
+
     # 兼容参数
     mock: Optional[bool] = False
 
@@ -150,6 +153,132 @@ def extract_watchlist(req: RunBacktestReq) -> List[str]:
     return list(merged.keys())
 
 
+# ==================== 固定权重回测 ====================
+def _run_fixed_weight_backtest(req: "RunBacktestReq", window_days: int):
+    """
+    固定权重回测: 使用BacktestEngineer, 保留用户传入的权重。
+    不做评分、不做动态调仓、不收税。
+    确保与portfolio页面的metrics完全一致。
+    """
+    from backend.agents.backtest_engineer import _load_prices, _align_by_date, _portfolio_nav
+
+    # 提取权重(保留!)
+    weights: dict = {}
+    if req.weights:
+        for w in req.weights:
+            if isinstance(w, dict):
+                s = (w.get("symbol") or "").upper().strip()
+                v = float(w.get("weight") or 0.0)
+            else:
+                s = (w.symbol or "").upper().strip()
+                v = float(w.weight or 0.0)
+            if s:
+                weights[s] = weights.get(s, 0.0) + v
+    if req.holdings:
+        for h in req.holdings:
+            s = str(h.get("symbol", "")).upper().strip()
+            v = float(h.get("weight") or 0.0)
+            if s:
+                weights[s] = weights.get(s, 0.0) + v
+
+    if not weights:
+        raise HTTPException(status_code=422, detail="请提供 weights 或 holdings")
+
+    # 归一化
+    total_w = sum(weights.values())
+    if total_w <= 0:
+        raise HTTPException(status_code=422, detail="权重总和必须>0")
+    weights = {s: v / total_w for s, v in weights.items()}
+
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=window_days)).strftime("%Y-%m-%d")
+    tc = float(req.trading_cost or 0.001)
+
+    print(f"\n{'=' * 60}")
+    print(f"🚀 固定权重回测")
+    print(f"{'=' * 60}")
+    print(f"📊 股票: {weights}")
+    print(f"📅 期间: {start_date} → {end_date} ({window_days}天)")
+
+    # 加载价格
+    price_map = {}
+    for sym in weights:
+        series = _load_prices(sym, start_date, end_date, use_mock=False)
+        if not series:
+            raise HTTPException(status_code=400, detail=f"无法获取 {sym} 的价格数据")
+        price_map[sym] = sorted(series, key=lambda x: x.get("date", ""))
+
+    dates, closes = _align_by_date(price_map)
+    if not dates or len(dates) < 5:
+        raise HTTPException(status_code=400, detail="对齐后交易日不足")
+
+    # 核心计算
+    bt = _portfolio_nav(dates, closes, weights, tc)
+    nav = bt["nav"]
+    metrics = bt["metrics"]
+
+    # 基准: SPY
+    benchmark_nav = []
+    try:
+        spy_series = _load_prices(req.benchmark_symbol or "SPY", start_date, end_date, False)
+        if spy_series:
+            spy_map = {p["date"]: p["close"] for p in spy_series}
+            bseq = []
+            for d in dates:
+                if d in spy_map:
+                    bseq.append(spy_map[d])
+                elif bseq:
+                    bseq.append(bseq[-1])
+            if bseq:
+                base = bseq[0]
+                benchmark_nav = [round(x / base, 6) for x in bseq]
+    except Exception:
+        pass
+
+    # 累计收益(方便前端展示)
+    total_return = (nav[-1] / nav[0] - 1) if nav and nav[0] > 0 else 0.0
+
+    ann = metrics.get("ann_return", 0.0)
+    mdd = metrics.get("mdd", metrics.get("max_dd", 0.0))
+    sharpe = metrics.get("sharpe", 0.0)
+    win_rate = metrics.get("win_rate", 0.0)
+
+    print(f"✅ 完成: 累计{total_return*100:.1f}%, 年化{ann*100:.1f}%, MDD{mdd*100:.1f}%, Sharpe{sharpe:.2f}")
+
+    return {
+        "success": True,
+        "dates": dates,
+        "nav": nav,
+        "benchmark_nav": benchmark_nav,
+        "drawdown": bt.get("drawdown", []),
+        "metrics": {
+            # 统一小数形式(供前端 * 100 显示)
+            "ann_return": round(ann, 6),
+            "total_return": round(total_return, 6),
+            "mdd": round(mdd, 6),
+            "max_dd": round(mdd, 6),
+            "sharpe": round(sharpe, 4),
+            "winrate": round(win_rate, 4),
+            "win_rate": round(win_rate * 100, 2),   # 百分比形式兼容
+            "max_drawdown": round(mdd * 100, 2),     # 百分比形式兼容
+            "turnover": round(metrics.get("turnover", 0.0), 4),
+        },
+        "params": {
+            "window": req.window or f"{window_days}D",
+            "window_days": window_days,
+            "cost": tc,
+            "trading_cost": tc,
+            "rebalance": req.rebalance or "weekly",
+            "benchmark": req.benchmark_symbol or "SPY",
+            "mode": "fixed_weight",
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+        "version_tag": "fixed_weight_v1.0",
+        "backtest_id": f"bt_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+    }
+
+
 # ==================== 主路由 ====================
 @router.post("/run")
 def run_backtest(req: RunBacktestReq):
@@ -169,6 +298,14 @@ def run_backtest(req: RunBacktestReq):
         # 1. 解析参数
         window_days = parse_window_days(req.window, req.window_days or 252)
         rebalance_freq = parse_rebalance_freq(req.rebalance or "weekly")
+
+        # =====================================================
+        # 固定权重模式: 使用BacktestEngineer, 保留用户传入的权重
+        # 确保与portfolio页面使用完全相同的引擎和权重
+        # =====================================================
+        if (req.mode or "fixed") == "fixed":
+            return _run_fixed_weight_backtest(req, window_days)
+
         watchlist = extract_watchlist(req)
 
         # 2. 计算日期范围
@@ -177,7 +314,7 @@ def run_backtest(req: RunBacktestReq):
 
         # 3. 打印回测配置
         print(f"\n{'=' * 60}")
-        print(f"🚀 开始完整回测")
+        print(f"🚀 开始完整回测(动态评分模式)")
         print(f"{'=' * 60}")
         print(f"📊 股票池: {', '.join(watchlist)} ({len(watchlist)}只)")
         print(f"📅 期间: {start_date} → {end_date} ({window_days}天)")

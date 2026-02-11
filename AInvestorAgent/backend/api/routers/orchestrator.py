@@ -663,49 +663,35 @@ def decide(req: DecideReq):
         holdings = _attach_sector(holdings)
         _debug_unknowns(holdings)
 
-        # 5) 📧 立即调用回测,获取真实metrics
+        # 5) 直接计算回测metrics（不再HTTP自调用，用实际权重）
         real_metrics = {"ann_return": 0.0, "mdd": 0.0, "sharpe": 0.0, "winrate": 0.0}
         snapshot_id = f"decide_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         try:
-            backtest_req = {
-                "holdings": [{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
-                "window_days": 252,
-                "trading_cost": 0.001,
-                "rebalance": "weekly",
-                "benchmark_symbol": "SPY"
-            }
+            from backend.agents.backtest_engineer import _load_prices, _align_by_date, _portfolio_nav
 
-            req_data = json.dumps(backtest_req).encode('utf-8')
-            headers = {'Content-Type': 'application/json'}
-            backtest_url = "http://127.0.0.1:8000/api/backtest/run"
-            request = urllib.request.Request(backtest_url, data=req_data, headers=headers, method='POST')
+            weights_dict = {h["symbol"]: float(h["weight"]) for h in holdings}
+            end_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+            start_str = (datetime.datetime.utcnow() - datetime.timedelta(days=252)).strftime("%Y-%m-%d")
 
-            with urllib.request.urlopen(request, timeout=30) as response:
-                backtest_result = json.loads(response.read().decode('utf-8'))
+            price_map = {}
+            for sym in weights_dict:
+                series = _load_prices(sym, start_str, end_str, use_mock=False)
+                if series:
+                    price_map[sym] = sorted(series, key=lambda x: x.get("date", ""))
 
-                if backtest_result.get("success") and backtest_result.get("metrics"):
-                    m = backtest_result["metrics"]
-                    # 统一字段名映射（兼容 backtest.py 的多种命名）
-                    ann_return_val = m.get("ann_return")
-                    if ann_return_val is None:
-                        ann_pct = m.get("annualized_return_after_tax", m.get("annualized_return_before_tax", 0.0))
-                        ann_return_val = ann_pct / 100.0
-                    mdd_val = m.get("mdd", m.get("max_dd"))
-                    if mdd_val is None:
-                        mdd_val = m.get("max_drawdown", 0.0) / 100.0
-                    winrate_val = m.get("winrate")
-                    if winrate_val is None:
-                        wr_pct = m.get("win_rate", 0.0)
-                        winrate_val = wr_pct / 100.0 if wr_pct > 1 else wr_pct
-
+            if price_map:
+                dates, closes = _align_by_date(price_map)
+                if dates and len(dates) > 10:
+                    bt_result = _portfolio_nav(dates, closes, weights_dict, tc=0.001)
+                    m = bt_result.get("metrics", {})
                     real_metrics = {
-                        "ann_return": round(ann_return_val, 6),
-                        "mdd": round(mdd_val, 6),
+                        "ann_return": round(m.get("ann_return", 0.0), 6),
+                        "mdd": round(m.get("mdd", m.get("max_dd", 0.0)), 6),
                         "sharpe": round(m.get("sharpe", 0.0), 4),
-                        "winrate": round(winrate_val, 4)
+                        "winrate": round(m.get("win_rate", 0.0), 4)
                     }
-                    print(f"✅ [decide] 回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
+                    print(f"✅ [decide] 直接回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
         except Exception as e:
             print(f"⚠️ [decide] 回测失败: {e}")
 

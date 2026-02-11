@@ -399,6 +399,7 @@ export default function SimulatorPage() {
           <div className="card-header"><h3>📊 关键指标</h3></div>
           <div className="card-body" style={{ display: "flex", gap: 16, flexWrap: 'wrap' }}>
             <MetricCard label="年化收益" value={fmtPct(bt.metrics?.ann_return)} />
+            <MetricCard label="累计收益" value={fmtPct((bt.metrics as any)?.total_return ?? (bt.nav?.length ? bt.nav[bt.nav.length - 1] - 1 : undefined))} />
             <MetricCard label="夏普比率" value={fmtNum(bt.metrics?.sharpe, 2)} />
             <MetricCard label="最大回撤" value={fmtPct((bt as any)?.metrics?.max_dd ?? bt.metrics?.mdd)} />
             <MetricCard label="胜率" value={fmtPct(bt.metrics?.winrate ?? (bt.metrics?.win_rate != null ? bt.metrics.win_rate / 100 : undefined))} />

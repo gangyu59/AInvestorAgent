@@ -116,64 +116,50 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
         sector_weights[sector] += h.get('weight', 0)
     sector_pairs = [[s, float(w)] for s, w in sector_weights.items()]
 
-    # 🔧 关键修改: propose后立即运行回测,获取真实metrics
+    # 🔧 关键修复: 直接计算回测metrics(不再HTTP自调用,不再丢弃权重)
     real_metrics = {"ann_return": 0.0, "mdd": 0.0, "sharpe": 0.0, "winrate": 0.0}
 
     try:
-        import urllib.request
-        import json
+        from backend.agents.backtest_engineer import _load_prices, _align_by_date, _portfolio_nav
+        from backend.backtest.metrics import compute_metrics
+        from datetime import timedelta
 
-        # 调用回测API
-        backtest_req = {
-            "holdings": [{"symbol": h["symbol"], "weight": h["weight"]} for h in holdings],
-            "window_days": 252,  # 1年
-            "trading_cost": 0.001,
-            "rebalance": "weekly",
-            "benchmark_symbol": "SPY"
-        }
+        # 用portfolio的实际权重做回测
+        weights_dict = {h["symbol"]: float(h["weight"]) for h in holdings}
+        end_str = datetime.utcnow().strftime("%Y-%m-%d")
+        start_str = (datetime.utcnow() - timedelta(days=252)).strftime("%Y-%m-%d")
 
-        req_data = json.dumps(backtest_req).encode('utf-8')
-        headers = {'Content-Type': 'application/json'}
+        # 加载价格并对齐
+        price_map = {}
+        for sym in weights_dict:
+            series = _load_prices(sym, start_str, end_str, use_mock=False)
+            if series:
+                price_map[sym] = sorted(series, key=lambda x: x.get("date", ""))
 
-        # 调用本地回测接口
-        backtest_url = "http://127.0.0.1:8000/api/backtest/run"
-        request = urllib.request.Request(backtest_url, data=req_data, headers=headers, method='POST')
-
-        with urllib.request.urlopen(request, timeout=30) as response:
-            backtest_result = json.loads(response.read().decode('utf-8'))
-
-            # 提取metrics - 统一字段名映射
-            if backtest_result.get("success") and backtest_result.get("metrics"):
-                m = backtest_result["metrics"]
-                # ann_return: 优先用已统一的小数形式字段，否则从百分比转换
-                ann_return_val = m.get("ann_return")
-                if ann_return_val is None:
-                    ann_pct = m.get("annualized_return_after_tax", m.get("annualized_return_before_tax", 0.0))
-                    ann_return_val = ann_pct / 100.0  # 百分比 → 小数
-                # mdd: 同理
-                mdd_val = m.get("mdd", m.get("max_dd"))
-                if mdd_val is None:
-                    mdd_pct = m.get("max_drawdown", 0.0)
-                    mdd_val = mdd_pct / 100.0
-                # winrate
-                winrate_val = m.get("winrate")
-                if winrate_val is None:
-                    wr_pct = m.get("win_rate", 0.0)
-                    winrate_val = wr_pct / 100.0 if wr_pct > 1 else wr_pct
+        if price_map:
+            dates, closes = _align_by_date(price_map)
+            if dates and len(dates) > 10:
+                # 使用BacktestEngineer的固定权重NAV计算(与simulator页面一致)
+                bt_result = _portfolio_nav(dates, closes, weights_dict, tc=0.001)
+                nav = bt_result.get("nav", [])
+                m = bt_result.get("metrics", {})
 
                 real_metrics = {
-                    "ann_return": round(ann_return_val, 6),
-                    "mdd": round(mdd_val, 6),
+                    "ann_return": round(m.get("ann_return", 0.0), 6),
+                    "mdd": round(m.get("mdd", m.get("max_dd", 0.0)), 6),
                     "sharpe": round(m.get("sharpe", 0.0), 4),
-                    "winrate": round(winrate_val, 4)
+                    "winrate": round(m.get("win_rate", 0.0), 4)
                 }
-                print(f"✅ 回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
+                print(f"✅ 直接回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
             else:
-                print("⚠️ 回测返回成功但无metrics,使用默认值")
+                print("⚠️ 价格数据不足(<10天),使用默认metrics")
+        else:
+            print("⚠️ 无法加载价格数据,使用默认metrics")
 
     except Exception as e:
         print(f"⚠️ 回测失败,使用默认metrics: {e}")
-        # 失败时保持默认的0值
+        import traceback
+        traceback.print_exc()
 
     # 构建完整payload
     payload: Dict[str, Any] = {
