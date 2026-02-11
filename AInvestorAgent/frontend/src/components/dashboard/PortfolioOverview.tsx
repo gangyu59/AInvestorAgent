@@ -43,10 +43,6 @@ export function PortfolioOverview({ snapshot, keptTop5, onDecide }: Props) {
               <div className="value">{pct(snapshot?.metrics?.ann_return, 2)}</div>
             </div>
             <div className="kpi">
-              <div className="label">累计收益</div>
-              <div className="value">{pct(snapshot?.metrics?.total_return, 1)}</div>
-            </div>
-            <div className="kpi">
               <div className="label">最大回撤</div>
               <div className="value">{pct(snapshot?.metrics?.mdd, 1)}</div>
             </div>

@@ -109,33 +109,6 @@ REPORT_DIR = os.path.join(os.path.dirname(__file__), "reports")
 os.makedirs(REPORT_DIR, exist_ok=True)
 app.mount("/reports", StaticFiles(directory=REPORT_DIR), name="reports")
 
-# ==================== 前端静态文件服务 ====================
-# 生产部署时，由后端直接提供前端构建产物（frontend/dist/）
-# 这样 Launch.bat 只需启动一个进程（Python backend）
-FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
-if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
-    from starlette.responses import FileResponse
-
-    # 挂载静态资源（JS/CSS/图片等）
-    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="frontend-assets")
-
-    # SPA catch-all: 非 API 路径一律返回 index.html
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
-        # 排除 API 路径和已挂载的路径
-        if full_path.startswith(("api/", "health", "reports/", "orchestrator/", "docs", "openapi")):
-            return None  # 让 FastAPI 继续匹配其他路由
-        # 检查是否是静态文件（如 favicon.ico, vite.svg 等）
-        static_file = FRONTEND_DIST / full_path
-        if full_path and static_file.exists() and static_file.is_file():
-            return FileResponse(str(static_file))
-        # 其他路径一律返回 index.html（SPA 路由）
-        return FileResponse(str(FRONTEND_DIST / "index.html"))
-
-    logger.info(f"🌐 前端已挂载: {FRONTEND_DIST}")
-else:
-    logger.info(f"ℹ️ 前端 dist 未找到({FRONTEND_DIST})，请运行 npm run build 或使用 vite dev server")
-
 @app.get("/health")
 def health():
     return {"status": "ok"}

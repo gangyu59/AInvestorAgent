@@ -237,19 +237,7 @@ export default function Dashboard() {
   }
 
   async function onRunBacktest() {
-    // 🔧 修复: 传递当前组合数据到simulator，确保回测使用相同的holdings和权重
-    if (snapshot?.snapshot_id && snapshot?.weights && Object.keys(snapshot.weights).length > 0) {
-      const holdings = Object.entries(snapshot.weights as Record<string, number>).map(
-        ([symbol, weight]) => ({ symbol, weight })
-      );
-      sessionStorage.setItem('backtestHoldings', JSON.stringify({
-        holdings,
-        snapshot_id: snapshot.snapshot_id,
-      }));
-      window.location.hash = `#/simulator?sid=${encodeURIComponent(snapshot.snapshot_id)}`;
-    } else {
-      window.location.hash = "#/simulator?from=backtest";
-    }
+    window.location.hash = "#/simulator?from=backtest";
   }
 
   function onGenerateReport() {
