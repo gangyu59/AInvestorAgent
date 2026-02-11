@@ -10,7 +10,7 @@ type BacktestResponse = {
   nav?: number[];
   benchmark_nav?: number[];
   drawdown?: number[];
-  metrics?: { ann_return?: number; sharpe?: number; max_dd?: number; win_rate?: number; mdd?: number };
+  metrics?: { ann_return?: number; sharpe?: number; max_dd?: number; win_rate?: number; winrate?: number; mdd?: number };
   params?: { window?: string; cost?: number; rebalance?: string; max_trades_per_week?: number };
   version_tag?: string;
   backtest_id?: string;
@@ -222,30 +222,36 @@ export default function SimulatorPage() {
         }
       }
 
-      // 方案2: 前端等权重回测兜底
-      console.log("🔄 使用前端等权重回测");
-      const symbols = pool.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+      // 方案2: 使用后端API回测（等权重），确保与首页使用同一引擎
+      console.log("🔄 使用后端API等权重回测");
+      let symbols = pool.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
 
       if (symbols.length === 0) {
-        // 如果输入框也是空的，使用默认股票池
         const defaultSymbols = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
         console.log("📝 使用默认股票池:", defaultSymbols);
         setPool(defaultSymbols.join(", "));
-
-        const local = await localEqualWeightBacktest(defaultSymbols, fetchPriceSeries);
-        console.log("✅ 前端回测结果:", local);
-
-        if (local.nav?.length) {
-          setBt(local);
-        } else {
-          setErr("回测未产生有效数据");
-        }
-        return;
+        symbols = defaultSymbols;
       }
 
-      const local = await localEqualWeightBacktest(symbols, fetchPriceSeries);
-      console.log("✅ 前端回测结果:", local);
+      // 构造等权重 holdings
+      const eqWeight = 1.0 / symbols.length;
+      const eqHoldings: Holding[] = symbols.map(s => ({ symbol: s, weight: eqWeight }));
 
+      try {
+        // 优先调用后端API，保证与首页同引擎
+        const result = await apiRunBacktest(eqHoldings);
+        if (result && (result.nav?.length || result.dates?.length)) {
+          console.log("✅ 后端等权回测成功");
+          setBt(result);
+          return;
+        }
+      } catch (e) {
+        console.warn("⚠️ 后端API不可达，降级到前端本地回测:", e);
+      }
+
+      // 仅在后端不可达时使用前端本地计算作为fallback
+      console.log("🔄 降级：前端本地等权回测");
+      const local = await localEqualWeightBacktest(symbols, fetchPriceSeries);
       if (local.nav?.length) {
         setBt(local);
       } else {
@@ -395,7 +401,7 @@ export default function SimulatorPage() {
             <MetricCard label="年化收益" value={fmtPct(bt.metrics?.ann_return)} />
             <MetricCard label="夏普比率" value={fmtNum(bt.metrics?.sharpe, 2)} />
             <MetricCard label="最大回撤" value={fmtPct((bt as any)?.metrics?.max_dd ?? bt.metrics?.mdd)} />
-            <MetricCard label="胜率" value={fmtPct((bt as any)?.metrics?.win_rate)} />
+            <MetricCard label="胜率" value={fmtPct(bt.metrics?.winrate ?? (bt.metrics?.win_rate != null ? bt.metrics.win_rate / 100 : undefined))} />
           </div>
         </div>
       )}
@@ -473,13 +479,15 @@ function calcMetricsFromNav(nav: number[], rets: number[]) {
   const n = rets.length || 1;
   const total = nav[nav.length - 1] || 1;
   const ann_return = Math.pow(total, 252 / n) - 1;
-  let peak = nav[0] || 1, mdd = 0;
-  for (const v of nav) { if (v > peak) peak = v; if (peak > 0) mdd = Math.max(mdd, 1 - v/peak); }
+  let peak = nav[0] || 1, maxDd = 0;
+  for (const v of nav) { if (v > peak) peak = v; if (peak > 0) maxDd = Math.max(maxDd, 1 - v/peak); }
+  const mdd = -maxDd; // 负数表示回撤，与后端一致
   const mean = rets.reduce((a, b) => a + b, 0) / (rets.length || 1);
   const variance = rets.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (Math.max(rets.length - 1, 1));
   const std = Math.sqrt(variance);
   const sharpe = std > 0 ? (mean / std) * Math.sqrt(252) : 0;
-  return { ann_return, mdd, sharpe };
+  const winrate = rets.length > 0 ? rets.filter(r => r > 0).length / rets.length : 0;
+  return { ann_return, mdd, sharpe, winrate };
 }
 
 function NavChart({ bt }: { bt: BacktestResponse }) {

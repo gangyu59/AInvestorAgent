@@ -247,6 +247,11 @@ def run_backtest(req: RunBacktestReq):
                 "annualized_return_before_tax": round(metrics["annualized_return_before_tax"], 2),
                 "annualized_return_after_tax": round(metrics["annualized_return_after_tax"], 2),
 
+                # 统一兼容字段（供 portfolio.py / orchestrator.py / 前端使用）
+                "ann_return": round(metrics["annualized_return_after_tax"] / 100.0, 6),  # 小数形式
+                "mdd": round(metrics["max_drawdown"] / 100.0, 6),                        # 小数形式
+                "max_dd": round(metrics["max_drawdown"] / 100.0, 6),                     # 兼容
+
                 # 风险指标
                 "sharpe": round(metrics["sharpe_ratio"], 3),
                 "sharpe_ratio": round(metrics["sharpe_ratio"], 3),  # 兼容两种命名
@@ -255,6 +260,7 @@ def run_backtest(req: RunBacktestReq):
                 # 交易指标
                 "total_trades": metrics["total_trades"],
                 "win_rate": round(metrics["win_rate"], 2),
+                "winrate": round(metrics["win_rate"] / 100.0, 4),  # 兼容小数形式
 
                 # 税务指标
                 "tax_impact_pct": round(metrics["tax_impact_pct"], 2),

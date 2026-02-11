@@ -183,18 +183,37 @@ def _portfolio_nav(dates: List[str], closes: Dict[str, List[float]], weights: Di
 
     # 组合日收益（从 nav 推导）
     port_daily = [nav[i] / nav[i-1] - 1 for i in range(1, len(nav))]
-    ann = (1 + sum(port_daily) / max(1, len(port_daily))) ** 252 - 1 if port_daily else 0.0
-    vol = (sum((x - (sum(port_daily)/len(port_daily)))**2 for x in port_daily) / max(1, len(port_daily))) ** 0.5 * (252 ** 0.5) if port_daily else 0.0
-    sharpe = ann / vol if vol > 1e-12 else 0.0
+
+    # 年化收益率: 使用CAGR公式 (复合年增长率)
+    if port_daily and nav[0] > 0:
+        total_return = nav[-1] / nav[0]
+        years = len(port_daily) / 252.0
+        ann = (total_return ** (1.0 / years)) - 1.0 if years > 0 and total_return > 0 else 0.0
+    else:
+        ann = 0.0
+
+    # Sharpe比率: (avg_daily / std_daily) * sqrt(252)
+    if port_daily:
+        avg_d = sum(port_daily) / len(port_daily)
+        var_d = sum((x - avg_d) ** 2 for x in port_daily) / max(len(port_daily) - 1, 1)
+        std_d = var_d ** 0.5
+        sharpe = (avg_d / std_d) * (252 ** 0.5) if std_d > 1e-12 else 0.0
+    else:
+        sharpe = 0.0
+
     win = sum(1 for x in port_daily if x > 0) / max(1, len(port_daily))
+    max_dd = min(dd) if dd else 0.0
 
     return {
         "dates": dates,
         "nav": [round(x, 6) for x in nav],
         "drawdown": [round(x, 6) for x in dd],
         "metrics": {
-            "annualized_return": round(ann, 6),
-            "max_drawdown": round(min(dd) if dd else 0.0, 6),
+            "ann_return": round(ann, 6),
+            "annualized_return": round(ann, 6),  # 兼容旧字段名
+            "max_dd": round(max_dd, 6),
+            "mdd": round(max_dd, 6),             # 兼容前端
+            "max_drawdown": round(max_dd, 6),     # 兼容backtest.py命名
             "sharpe": round(sharpe, 4),
             "win_rate": round(win, 4),
             "turnover": round(turnover, 6),

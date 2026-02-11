@@ -142,14 +142,30 @@ def propose(req: ProposeReq, db: Session = Depends(get_db)):
         with urllib.request.urlopen(request, timeout=30) as response:
             backtest_result = json.loads(response.read().decode('utf-8'))
 
-            # 提取metrics
+            # 提取metrics - 统一字段名映射
             if backtest_result.get("success") and backtest_result.get("metrics"):
                 m = backtest_result["metrics"]
+                # ann_return: 优先用已统一的小数形式字段，否则从百分比转换
+                ann_return_val = m.get("ann_return")
+                if ann_return_val is None:
+                    ann_pct = m.get("annualized_return_after_tax", m.get("annualized_return_before_tax", 0.0))
+                    ann_return_val = ann_pct / 100.0  # 百分比 → 小数
+                # mdd: 同理
+                mdd_val = m.get("mdd", m.get("max_dd"))
+                if mdd_val is None:
+                    mdd_pct = m.get("max_drawdown", 0.0)
+                    mdd_val = mdd_pct / 100.0
+                # winrate
+                winrate_val = m.get("winrate")
+                if winrate_val is None:
+                    wr_pct = m.get("win_rate", 0.0)
+                    winrate_val = wr_pct / 100.0 if wr_pct > 1 else wr_pct
+
                 real_metrics = {
-                    "ann_return": m.get("ann_return", 0.0),
-                    "mdd": m.get("mdd", m.get("max_dd", 0.0)),
-                    "sharpe": m.get("sharpe", 0.0),
-                    "winrate": m.get("win_rate", m.get("winrate", 0.0))
+                    "ann_return": round(ann_return_val, 6),
+                    "mdd": round(mdd_val, 6),
+                    "sharpe": round(m.get("sharpe", 0.0), 4),
+                    "winrate": round(winrate_val, 4)
                 }
                 print(f"✅ 回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
             else:
@@ -307,10 +323,10 @@ async def get_latest_snapshot(db: Session = Depends(get_db)):
         "holdings": holdings,
         "sector_concentration": [[k, v] for k, v in sector_weights.items()],
         "metrics": payload.get("metrics", {
-            "ann_return": 0.15,
-            "mdd": -0.12,
-            "sharpe": 1.3,
-            "winrate": 0.68
+            "ann_return": 0.0,
+            "mdd": 0.0,
+            "sharpe": 0.0,
+            "winrate": 0.0
         })
     }
 

@@ -686,11 +686,24 @@ def decide(req: DecideReq):
 
                 if backtest_result.get("success") and backtest_result.get("metrics"):
                     m = backtest_result["metrics"]
+                    # 统一字段名映射（兼容 backtest.py 的多种命名）
+                    ann_return_val = m.get("ann_return")
+                    if ann_return_val is None:
+                        ann_pct = m.get("annualized_return_after_tax", m.get("annualized_return_before_tax", 0.0))
+                        ann_return_val = ann_pct / 100.0
+                    mdd_val = m.get("mdd", m.get("max_dd"))
+                    if mdd_val is None:
+                        mdd_val = m.get("max_drawdown", 0.0) / 100.0
+                    winrate_val = m.get("winrate")
+                    if winrate_val is None:
+                        wr_pct = m.get("win_rate", 0.0)
+                        winrate_val = wr_pct / 100.0 if wr_pct > 1 else wr_pct
+
                     real_metrics = {
-                        "ann_return": m.get("ann_return", 0.0),
-                        "mdd": m.get("mdd", m.get("max_dd", 0.0)),
-                        "sharpe": m.get("sharpe", 0.0),
-                        "winrate": m.get("win_rate", m.get("winrate", 0.0))
+                        "ann_return": round(ann_return_val, 6),
+                        "mdd": round(mdd_val, 6),
+                        "sharpe": round(m.get("sharpe", 0.0), 4),
+                        "winrate": round(winrate_val, 4)
                     }
                     print(f"✅ [decide] 回测完成, 年化收益: {real_metrics['ann_return'] * 100:.2f}%")
         except Exception as e:

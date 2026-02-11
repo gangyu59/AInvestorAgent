@@ -548,12 +548,17 @@ class HistoricalBacktestSimulator:
         final_value_after_tax = df['total_value'].iloc[-1]
         total_return_after_tax = (final_value_after_tax / self.initial_capital - 1) * 100
 
-        # 年化收益
+        # 年化收益: CAGR公式, days是交易日数量, 用252交易日/年
         days = len(df)
-        ann_return_before_tax = (pow(final_value_before_tax / self.initial_capital,
-                                     365 / days) - 1) * 100 if days > 0 else 0
-        ann_return_after_tax = (pow(final_value_after_tax / self.initial_capital,
-                                    365 / days) - 1) * 100 if days > 0 else 0
+        years = days / 252.0
+        if years > 0:
+            ann_return_before_tax = (pow(final_value_before_tax / self.initial_capital,
+                                         1.0 / years) - 1) * 100
+            ann_return_after_tax = (pow(final_value_after_tax / self.initial_capital,
+                                        1.0 / years) - 1) * 100
+        else:
+            ann_return_before_tax = 0
+            ann_return_after_tax = 0
 
         # 回撤
         df['peak'] = df['nav'].cummax()
@@ -636,7 +641,8 @@ class HistoricalBacktestSimulator:
             print(f"税务影响: -{(return_before_tax - return_after_tax):.2f}%")
             print(f"累计税款: ${self.total_tax_paid:,.2f}")
 
-        print(f"年化收益: {(pow(final_nav / initial_nav, 365 / len(df)) - 1) * 100:.2f}%")
+        years = len(df) / 252.0
+        print(f"年化收益: {(pow(final_nav / initial_nav, 1.0 / years) - 1) * 100:.2f}%" if years > 0 else "年化收益: N/A")
         print(f"最大回撤: {max_drawdown:.2f}%")
         print(f"夏普比率: {sharpe:.3f}")
         print(f"日胜率: {winrate:.1f}%")

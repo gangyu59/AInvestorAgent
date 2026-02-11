@@ -234,22 +234,29 @@ async def run_historical_backtest(req: HistoricalBacktestRequest):
             initial_nav = history_data[0]["nav"]
             total_return = (final_nav - initial_nav) / initial_nav * 100
 
-            # 年化收益
-            days = len(history_data)
-            ann_return = (pow(final_nav, 365 / max(days, 1)) - 1) * 100
+            # 年化收益: CAGR公式 = (final/initial)^(252/trading_days) - 1
+            trading_days = len(history_data)
+            total_return_ratio = final_nav / initial_nav if initial_nav > 0 else 1.0
+            years = trading_days / 252.0
+            if years > 0 and total_return_ratio > 0:
+                ann_return = ((total_return_ratio ** (1.0 / years)) - 1) * 100
+            else:
+                ann_return = 0.0
 
             # 最大回撤
             max_dd = min([h["drawdown"] for h in history_data])
 
-            # 计算夏普比率
+            # 计算夏普比率 (Bessel校正: 使用N-1)
             returns = []
             for i in range(1, len(history_data)):
-                daily_return = (history_data[i]["nav"] - history_data[i - 1]["nav"]) / history_data[i - 1]["nav"]
-                returns.append(daily_return)
+                prev_nav = history_data[i - 1]["nav"]
+                if prev_nav > 0:
+                    daily_return = (history_data[i]["nav"] - prev_nav) / prev_nav
+                    returns.append(daily_return)
 
-            if len(returns) > 0:
+            if len(returns) > 1:
                 avg_return = sum(returns) / len(returns)
-                variance = sum([(r - avg_return) ** 2 for r in returns]) / len(returns)
+                variance = sum([(r - avg_return) ** 2 for r in returns]) / (len(returns) - 1)
                 std_return = variance ** 0.5
                 sharpe = (avg_return / std_return * (252 ** 0.5)) if std_return > 0 else 0
             else:
